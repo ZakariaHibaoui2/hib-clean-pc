@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hib Clean PC</title>
+  <link rel="icon" href="mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <aside class="side">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><defs><radialGradient id="coin" cx="32%" cy="26%" r="80%"><stop offset="0" stop-color="#ffe1a0"/><stop offset=".45" stop-color="#f3b23c"/><stop offset="1" stop-color="#cf8b17"/></radialGradient></defs><circle cx="16" cy="16" r="15" fill="url(#coin)"/><circle cx="16" cy="16" r="14" fill="none" stroke="#fff" stroke-opacity=".25" stroke-width="1.5"/><path d="M16 6.5c.9 4.6 2.9 6.6 7.5 7.5-4.6.9-6.6 2.9-7.5 7.5-.9-4.6-2.9-6.6-7.5-7.5 4.6-.9 6.6-2.9 7.5-7.5z" fill="#0e2427"/><path d="M23 19.5c.35 1.6 1 2.3 2.6 2.6-1.6.35-2.25 1-2.6 2.6-.35-1.6-1-2.25-2.6-2.6 1.6-.3 2.25-1 2.6-2.6z" fill="#0e2427"/></svg>
+      <span>Hib Clean PC</span>
+    </div>
+    <nav id="nav" aria-label="Sections"></nav>
+    <div class="side-foot">
+      <label class="lang">
+        <span class="sr" data-t="language">Language</span>
+        <select id="lang">
+          <option value="en">English</option>
+          <option value="fr">Français</option>
+          <option value="ar">العربية</option>
+        </select>
+      </label>
+      <span id="version" class="version"></span>
+    </div>
+  </aside>
+
+  <main id="view" tabindex="-1"></main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Full-screen colour test for the used-laptop check -->
+  <div id="screen-test" class="screen-test" hidden>
+    <p id="screen-test-hint"></p>
+  </div>
+
+  <!-- The printable report; filled when the PDF is made -->
+  <article id="report" class="report" aria-hidden="true"></article>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

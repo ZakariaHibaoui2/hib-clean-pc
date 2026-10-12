@@ -1,0 +1,52 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: JavaScript parses
+        run: |
+          node --check ui/app.js
+          node --check ui/i18n.js
+
+      - name: PowerShell scripts parse
+        shell: powershell
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem scripts, docs -Filter *.ps1 -Recurse) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $bad++; Write-Host "$($f.Name): $($errors[0].Message)" }
+          }
+          if ($bad) { exit 1 }
+
+      - name: Translations complete
+        run: |
+          node -e "eval(require('fs').readFileSync('ui/i18n.js','utf8').replace('const I18N','globalThis.I18N')); const en=Object.keys(I18N.en); for (const l of ['fr','ar']) { const miss=en.filter(k=>!(k in I18N[l])); if (miss.length) { console.error(l, miss); process.exit(1) } } console.log('ok', en.length, 'strings')"
+
+      - name: Build
+        run: python tools/build.py
+
+      - name: Script tests
+        run: python tests/test_scripts.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HibCleanPC
+          path: dist/HibCleanPC.exe

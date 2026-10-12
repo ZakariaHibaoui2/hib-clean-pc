@@ -1,0 +1,7 @@
+build/
+dist/
+vendor/
+tests/screenshots/
+__pycache__/
+*.pyc
+.claude/
