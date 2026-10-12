@@ -81,7 +81,7 @@ def icon():
         png = page.screenshot(omit_background=True, clip={"x": 0, "y": 0, "width": 256, "height": 256})
         browser.close()
     img = Image.open(io.BytesIO(png)).convert("RGBA")
-    img.save(ROOT / "ui" / "icon-256.png")
+    img.save(ROOT / "assets" / "icon-256.png")
     img.save(ROOT / "app" / "app.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 

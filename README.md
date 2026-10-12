@@ -26,7 +26,7 @@ English · Français · العربية
 
 | | |
 |---|---|
-| **PC health score** | One score from 0 to 100 and the fixes that matter most, worked out from everything below. |
+| **PC health score** | A liquid orb that fills to your score from 0 to 100, the fixes that matter most, and **Quick clean** for the junk that needs no permission. |
 | **Clean up** | Temporary files, browser caches, old Windows Update files, error reports and the Recycle Bin. Files from the last 24 hours and anything in use are left alone, and your passwords, history and logins stay. |
 | **Startup apps** | Every app that starts with Windows, with an on/off switch. It's the same switch Task Manager uses, so nothing is deleted. |
 | **Windows clean-up** | Turns off 12 kinds of Windows 11 ads and suggestions (Start, lock screen, Settings, File Explorer, Bing in search, Copilot, widgets…) and removes pre-installed junk apps. Every change can be undone, and it can make a restore point first. |

@@ -23,14 +23,14 @@
     @font-face { font-family: "Bricolage"; src: url("fonts/BricolageGrotesque.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
     @font-face { font-family: "Figtree"; src: url("fonts/Figtree.woff2") format("woff2"); font-weight: 300 900; font-display: swap; }
     :root {
-      --deep: #0e2427; --night: #0a1c1e; --tide: #163539; --tide-hi: #1d454a; --line: #27494e;
-      --foam: #e8f3ef; --kelp: #94b3ab; --amber: #f3b23c; --amber-hot: #ffc860; --mint: #6fd3a8;
+      --deep: #071a26; --night: #04131c; --tide: #0d2a3a; --tide-hi: #12354a; --line: #16405a;
+      --foam: #eaf6fa; --kelp: #8db3c4; --amber: #39e0c6; --amber-hot: #5cf0d8; --mint: #39e0c6;
       --display: "Bricolage", "Segoe UI", system-ui, sans-serif; --body: "Figtree", "Segoe UI", system-ui, sans-serif;
       color-scheme: dark;
     }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    body { margin: 0; background: var(--deep); color: var(--foam); font: 400 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+    body { margin: 0; background: radial-gradient(1000px 600px at 80% -10%, rgba(57, 224, 198, .10), transparent 60%), var(--deep); color: var(--foam); font: 400 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
     a { color: var(--amber); }
     .wrap { width: min(1120px, 100% - 32px); margin: 0 auto; }
     :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }

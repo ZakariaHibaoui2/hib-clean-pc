@@ -15,6 +15,7 @@ const I18N = {
     needsPermission: 'Size shown after permission', asksPermission: 'Windows asks permission',
 
     homeTitle: 'Your PC health', homeLead: 'One score for your whole PC, and the fixes that matter most.',
+    quickTitle: '{size} of junk to clean', quickSub: 'Temporary files, browser caches and crash dumps. No permission needed.', quickClean: 'Quick clean', quickDone: '{size} freed',
     topFixes: 'Best things to fix', fixIt: 'Fix', allGood: 'Nothing important to fix. Your PC is in good shape.',
     verdictGreat: 'Great shape', verdictOk: 'Good, with a few things to fix', verdictBad: 'Needs some care',
     fixDiskLow: 'Your drive is almost full: {free} left', fixJunk: 'Free {size} of junk files',
@@ -136,6 +137,7 @@ const I18N = {
     needsPermission: 'Taille visible après autorisation', asksPermission: "Windows demande l'autorisation",
 
     homeTitle: 'Santé de votre PC', homeLead: 'Une note pour tout votre PC, et les corrections les plus utiles.',
+    quickTitle: '{size} de fichiers inutiles', quickSub: 'Fichiers temporaires, caches des navigateurs et vidages de plantage. Sans autorisation.', quickClean: 'Nettoyage rapide', quickDone: '{size} libérés',
     topFixes: 'À corriger en priorité', fixIt: 'Corriger', allGood: 'Rien d\'important à corriger. Votre PC est en bon état.',
     verdictGreat: 'Excellent état', verdictOk: 'Bon, avec quelques points à corriger', verdictBad: 'A besoin d\'un peu d\'attention',
     fixDiskLow: 'Votre disque est presque plein : {free} libres', fixJunk: 'Libérez {size} de fichiers inutiles',
@@ -257,6 +259,7 @@ const I18N = {
     needsPermission: 'يظهر الحجم بعد الإذن', asksPermission: 'سيطلب ويندوز الإذن',
 
     homeTitle: 'صحة حاسوبك', homeLead: 'تقييم واحد لحاسوبك كله، وأهم الإصلاحات.',
+    quickTitle: '{size} من الملفات غير الضرورية', quickSub: 'ملفات مؤقتة وذاكرة المتصفحات وملفات الأعطال. بدون إذن.', quickClean: 'تنظيف سريع', quickDone: 'تم تحرير {size}',
     topFixes: 'أهم ما يجب إصلاحه', fixIt: 'إصلاح', allGood: 'لا شيء مهم يحتاج إصلاحًا. حاسوبك بحالة جيدة.',
     verdictGreat: 'حالة ممتازة', verdictOk: 'جيد، مع بعض الإصلاحات', verdictBad: 'يحتاج بعض العناية',
     fixDiskLow: 'القرص ممتلئ تقريبًا: تبقّى {free}', fixJunk: 'حرّر {size} من الملفات غير الضرورية',

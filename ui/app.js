@@ -157,8 +157,28 @@ const SECTIONS = ['home', 'clean', 'startup', 'windows', 'battery', 'updates', '
 function renderNav(active) {
   $('#nav').innerHTML = SECTIONS.map((s) => `
     <a href="#${s}" class="${s === active ? 'on' : ''}" ${s === active ? 'aria-current="page"' : ''}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[s]}</svg><span>${esc(t('nav_' + s))}</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[s]}</svg><span class="label">${esc(t('nav_' + s))}</span><span class="badge" data-badge="${s}" hidden></span>
     </a>`).join('');
+  updateBadges();
+}
+
+// Small live readings next to the section names, from scans already done.
+const JUNK_QUICK = ['user-temp', 'browser', 'crash-dumps', 'thumbnails'];
+const junkTotal = (cats) => cats.filter((c) => c.readable && c.id !== 'windows-old').reduce((s, c) => s + c.bytes, 0);
+async function updateBadges() {
+  const set = (name, text, kind = '') => {
+    const el = $(`[data-badge="${name}"]`);
+    if (!el) return;
+    el.hidden = text == null;
+    el.className = `badge ${kind}`;
+    el.textContent = text ?? '';
+  };
+  const settled = async (key) => { try { return cache[key] ? await cache[key] : null; } catch (e) { return null; } };
+  const [junk, updates, dns, tweaks] = await Promise.all(['junk', 'updates', 'dns', 'tweaks'].map(settled));
+  if (junk) { const b = junkTotal(junk); set('clean', b > 100 * 2 ** 20 ? bytes(b) : null, b > 2 ** 30 ? 'warn' : ''); }
+  if (updates && updates.available) set('updates', updates.apps.length ? num(updates.apps.length) : null, 'warn');
+  if (tweaks) { const n = tweaks.filter((x) => !x.applied).length; set('windows', n ? num(n) : null, ''); }
+  if (dns) set('adblock', '', dns.blocking ? 'dot ok' : 'dot');
 }
 
 function route() {
@@ -168,7 +188,10 @@ function route() {
   const view = $('#view');
   view.innerHTML = '';
   view.dataset.section = name;
+  view.classList.remove('enter');
   VIEWS[name](view);
+  void view.offsetWidth;
+  view.classList.add('enter');
   view.focus({ preventScroll: true });
   view.scrollTop = 0;
 }
@@ -177,37 +200,103 @@ function header(title, lead, actions = '') {
   return `<header class="head"><div><h1>${esc(title)}</h1><p class="lead">${esc(lead)}</p></div><div class="head-actions">${actions}</div></header>`;
 }
 const loading = (text) => `<div class="loading"><span class="spin" aria-hidden="true"></span>${esc(text)}</div>`;
+const skeleton = (text, rows = 4) => `<div class="skeleton" aria-busy="true">${'<i></i>'.repeat(rows)}<p>${esc(text)}</p></div>`;
 const errorBox = (err, retryId) => `<div class="error-box"><p>${esc(failure(err))}</p>${retryId ? `<button class="btn ghost" id="${retryId}">${esc(t('tryAgain'))}</button>` : ''}</div>`;
+
+// ---------- Liquid orb ----------
+// Water fills the orb to `value` percent, with a slow two-layer wave.
+const ORB_COLORS = { good: ['#5cf0d8', '#1fa9c9'], mid: ['#ffd98a', '#e0952a'], bad: ['#ff9d8f', '#d9485a'] };
+const orbHtml = (id, unit, extra = '') => `
+  <div class="orb ${extra}" ${id ? `id="${id}"` : ''}><canvas aria-hidden="true"></canvas><div class="orb-glass"></div>
+    <div class="orb-read"><span class="score">–</span><span class="of">${esc(unit)}</span></div></div>`;
+
+function orb(el, value, kind, onValue) {
+  const canvas = $('canvas', el);
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const size = el.getBoundingClientRect().width || 250;
+  canvas.width = Math.round(size * dpr);
+  canvas.height = Math.round(size * dpr);
+  el.classList.remove('good', 'mid', 'bad');
+  el.classList.add(kind);
+  const [top, bottom] = ORB_COLORS[kind];
+  const bubbles = Array.from({ length: 9 }, (_, i) => ({ x: (i * 0.137 + 0.11) % 1, y: Math.random(), r: 1.2 + (i % 3), v: 0.025 + (i % 4) * 0.012 }));
+  let level = reduced ? value : 0;
+  let last = performance.now();
+  let shown = -1;
+  const draw = (now) => {
+    if (!el.isConnected) return;
+    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    last = now;
+    level += (value - level) * (1 - Math.exp(-dt * 3.6));
+    if (Math.abs(value - level) < 0.15) level = value;
+    const w = canvas.width; const h = canvas.height; const tt = now / 1000;
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2); ctx.clip();
+    const bg = ctx.createRadialGradient(w * 0.4, h * 0.3, w * 0.05, w / 2, h / 2, w / 2);
+    bg.addColorStop(0, '#12354a'); bg.addColorStop(1, '#061520');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+    const surface = h * (1 - level / 100);
+    const amp = h * 0.018;
+    for (const layer of [{ a: 0.45, s: 1.1, o: 1.7 }, { a: 1, s: 0.8, o: 0 }]) {
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 4) {
+        const y = surface + Math.sin(x / w * Math.PI * 2 * 1.3 + tt * layer.s + layer.o) * amp * (reduced ? 0.5 : 1);
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h); ctx.closePath();
+      const g = ctx.createLinearGradient(0, surface, 0, h);
+      g.addColorStop(0, top); g.addColorStop(1, bottom);
+      ctx.globalAlpha = layer.a; ctx.fillStyle = g; ctx.fill();
+    }
+    ctx.globalAlpha = 0.35; ctx.fillStyle = '#ffffff';
+    for (const b of bubbles) {
+      if (!reduced) b.y -= b.v * dt;
+      if (b.y < 0) b.y = 1;
+      const by = surface + (h - surface) * b.y;
+      if (by > surface + amp * 2) { ctx.beginPath(); ctx.arc(b.x * w, by, b.r * dpr, 0, Math.PI * 2); ctx.fill(); }
+    }
+    ctx.restore();
+    const rounded = Math.round(level);
+    if (rounded !== shown) { shown = rounded; onValue(rounded); }
+    if (!reduced) requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+}
 
 // ---------- Views ----------
 const VIEWS = {};
 
-// Home: the health score and the top fixes.
+// Home: the health score, a one-click clean, and the top fixes.
 VIEWS.home = (view) => {
   view.innerHTML = `
     ${header(t('homeTitle'), t('homeLead'), `<button class="btn ghost" id="rescan">${esc(t('scanAgain'))}</button>`)}
     <section class="hero-grid">
-      <div class="gauge-card">
-        <div class="gauge" id="gauge" style="--p:0">
-          <div class="gauge-disc"><span class="score" id="score">–</span><span class="of">/100</span></div>
-        </div>
+      <div class="orb-card">
+        ${orbHtml('gauge', '/100')}
         <p class="verdict" id="verdict">${esc(t('scanning'))}</p>
       </div>
-      <div class="fixes">
-        <h2>${esc(t('topFixes'))}</h2>
-        <ol id="fixes" class="fix-list"><li class="ghost-row">${loading(t('scanning'))}</li></ol>
+      <div class="side-stack">
+        <div class="quick" id="quick" hidden></div>
+        <div class="fixes">
+          <h2>${esc(t('topFixes'))}</h2>
+          <ol id="fixes" class="fix-list"><li class="ghost-row">${skeleton(t('scanning'), 3)}</li></ol>
+        </div>
       </div>
     </section>
     <section class="tiles" id="tiles"></section>`;
+  $('#gauge .score').id = 'score';
   $('#rescan').onclick = () => { for (const k of Object.keys(cache)) delete cache[k]; route(); };
 
   const keys = ['system', 'junk', 'startup', 'tweaks', 'apps', 'battery', 'updates', 'dns'];
   const got = {};
-  const done = keys.map((k) => load(k).then((v) => { got[k] = v; tiles(got); }, () => {}));
+  const done = keys.map((k) => load(k).then((v) => { got[k] = v; tiles(got); updateBadges(); if (k === 'junk') quick(v); }, () => {}));
   Promise.all(done).then(() => {
     if (!$('#gauge')) return;
     const { score, issues } = healthOf(got);
-    animateScore(score);
+    orb($('#gauge'), score, score >= 65 ? 'good' : score >= 40 ? 'mid' : 'bad', (v) => { const s = $('#score'); if (s) s.textContent = num(v); });
     $('#verdict').textContent = t(score >= 85 ? 'verdictGreat' : score >= 65 ? 'verdictOk' : 'verdictBad');
     const top = issues.slice(0, 4);
     $('#fixes').innerHTML = top.length ? top.map((i) => `
@@ -219,19 +308,24 @@ VIEWS.home = (view) => {
   });
 };
 
-function animateScore(target) {
-  const g = $('#gauge'); const s = $('#score');
-  if (!g) return;
-  if (reduced) { g.style.setProperty('--p', target); s.textContent = num(target); return; }
-  const start = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - start) / 1400);
-    const v = Math.round(target * (1 - (1 - k) ** 3));
-    g.style.setProperty('--p', v);
-    s.textContent = num(v);
-    if (k < 1 && g.isConnected) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
+// One click cleans the junk that needs no permission: temp files, browser caches, crash dumps, previews.
+function quick(cats) {
+  const el = $('#quick');
+  if (!el) return;
+  const ids = cats.filter((c) => JUNK_QUICK.includes(c.id) && c.bytes > 0).map((c) => c.id);
+  const size = cats.filter((c) => ids.includes(c.id)).reduce((s, c) => s + c.bytes, 0);
+  if (size < 50 * 2 ** 20) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<div class="quick-text"><b>${esc(t('quickTitle', { size: bytes(size) }))}</b><span>${esc(t('quickSub'))}</span></div>
+    <button class="btn primary" id="quick-go">${esc(t('quickClean'))}</button>`;
+  $('#quick-go').onclick = (e) => withBusy(e.currentTarget, t('cleaning'), async () => {
+    try {
+      const r = await bridge('junk', { mode: 'clean', ids });
+      toast(t('quickDone', { size: bytes(r.freed) }), 'ok');
+      delete cache.junk; delete cache.system;
+      route();
+    } catch (err) { toast(failure(err), 'bad'); }
+  });
 }
 
 function tiles(d) {
@@ -242,10 +336,7 @@ function tiles(d) {
     items.push({ k: t('tileDisk'), v: bytes(d.system.drive.free), s: t('tileDiskOf', { total: bytes(d.system.drive.total) }), href: '#clean' });
     items.push({ k: t('tileMemory'), v: bytes(d.system.memory.total - d.system.memory.free), s: t('tileMemoryOf', { total: bytes(d.system.memory.total) }) });
   }
-  if (d.junk) {
-    const junk = d.junk.filter((c) => c.readable && c.id !== 'windows-old').reduce((s, c) => s + c.bytes, 0);
-    items.push({ k: t('tileJunk'), v: bytes(junk), s: t('tileJunkSub'), href: '#clean' });
-  }
+  if (d.junk) items.push({ k: t('tileJunk'), v: bytes(junkTotal(d.junk)), s: t('tileJunkSub'), href: '#clean' });
   if (d.battery && d.battery.hasBattery) items.push({ k: t('tileBattery'), v: `${num(d.battery.health)}%`, s: t('tileBatterySub'), href: '#battery' });
   if (d.updates && d.updates.available) items.push({ k: t('tileUpdates'), v: num(d.updates.apps.length), s: t('tileUpdatesSub'), href: '#updates' });
   if (d.dns) items.push({ k: t('tileAds'), v: d.dns.blocking ? t('on') : t('off'), s: t('tileAdsSub'), href: '#adblock' });
@@ -259,7 +350,7 @@ function tiles(d) {
 const JUNK_ORDER = ['user-temp', 'browser', 'win-temp', 'update-cache', 'delivery', 'error-reports', 'crash-dumps', 'thumbnails', 'recycle'];
 VIEWS.clean = (view) => {
   view.innerHTML = `${header(t('cleanTitle'), t('cleanLead'), `<button class="btn ghost" id="rescan">${esc(t('scanAgain'))}</button>`)}
-    <div id="body">${loading(t('measuring'))}</div>`;
+    <div id="body">${skeleton(t('measuring'), 6)}</div>`;
   $('#rescan').onclick = () => { delete cache.junk; route(); };
   load('junk').then((cats) => {
     const byId = Object.fromEntries(cats.map((c) => [c.id, c]));
@@ -275,7 +366,7 @@ VIEWS.clean = (view) => {
         </label></li>`).join('')}
       </ul>
       ${old && old.present ? `<div class="note"><p>${esc(t('windowsOld'))}</p><button class="btn ghost" id="storage">${esc(t('openStorage'))}</button></div>` : ''}
-      <div class="bar-actions"><p id="sel"></p><button class="btn primary" id="go">${esc(t('cleanNow'))}</button></div>
+      <div class="bar-actions sticky"><p id="sel"></p><button class="btn primary" id="go">${esc(t('cleanNow'))}</button></div>
       <div id="result"></div>`;
     const selected = () => $$('#cats input:checked').map((i) => byId[i.value]);
     const update = () => {
@@ -326,7 +417,7 @@ function countBytes(el, total) {
 
 // Startup apps: one switch each, like Task Manager.
 VIEWS.startup = (view) => {
-  view.innerHTML = `${header(t('startupTitle'), t('startupLead'))}<div id="body">${loading(t('loading'))}</div>`;
+  view.innerHTML = `${header(t('startupTitle'), t('startupLead'))}<div id="body">${skeleton(t('loading'), 5)}</div>`;
   load('startup').then((items) => {
     const sorted = [...items].sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name));
     const on = items.filter((i) => i.enabled).length;
@@ -366,10 +457,10 @@ VIEWS.windows = (view) => {
   view.innerHTML = `${header(t('winTitle'), t('winLead'))}
     <section class="card"><div class="card-head"><h2>${esc(t('winAds'))}</h2><button class="btn primary" id="all" disabled>${esc(t('removeAll'))}</button></div>
       <label class="check-line"><input type="checkbox" id="restore" checked> ${esc(t('restoreFirst'))}</label>
-      <div id="tweaks">${loading(t('loading'))}</div><div id="explorer"></div></section>
+      <div id="tweaks">${skeleton(t('loading'), 5)}</div><div id="explorer"></div></section>
     <section class="card"><div class="card-head"><h2>${esc(t('winApps'))}</h2><button class="btn primary" id="rm" disabled>${esc(t('removeSelected'))}</button></div>
       <p class="fine">${esc(t('winAppsLead'))}</p>
-      <div id="apps">${loading(t('loading'))}</div></section>`;
+      <div id="apps">${skeleton(t('loading'), 3)}</div></section>`;
 
   let needsExplorer = false;
   const showExplorer = () => {
@@ -485,7 +576,7 @@ VIEWS.windows = (view) => {
 
 // Battery: health, overnight drain, what wakes the PC.
 VIEWS.battery = (view) => {
-  view.innerHTML = `${header(t('batTitle'), t('batLead'))}<div id="body">${loading(t('loading'))}</div>`;
+  view.innerHTML = `${header(t('batTitle'), t('batLead'))}<div id="body">${skeleton(t('loading'), 3)}</div>`;
   load('battery').then((b) => {
     if (!b.hasBattery) { $('#body').innerHTML = `<p class="empty">${esc(t('noBattery'))}</p>`; return; }
     const h = b.health ?? 0;
@@ -494,10 +585,8 @@ VIEWS.battery = (view) => {
     const worst = sleeps.reduce((w, s) => (!w || s.perHour > w.perHour ? s : w), null);
     $('#body').innerHTML = `
       <section class="hero-grid">
-        <div class="gauge-card">
-          <div class="gauge ${grade}" style="--p:${Math.round(h)}">
-            <div class="gauge-disc"><span class="score">${esc(num(h))}</span><span class="of">%</span></div>
-          </div>
+        <div class="orb-card">
+          ${orbHtml('bat-orb', '%', 'gauge')}
           <p class="verdict">${esc(t('bat_' + grade))}</p>
         </div>
         <div class="facts">
@@ -533,6 +622,8 @@ VIEWS.battery = (view) => {
           <p class="fine">${esc(t('armedFine'))}</p>`
           : `<p class="empty">${esc(t('noArmed'))}</p>`}
       </section>`;
+    orb($('#bat-orb'), Math.round(h), grade === 'good' ? 'good' : grade === 'worn' ? 'mid' : 'bad',
+      (v) => { const sc = $('#bat-orb .score'); if (sc) sc.textContent = num(v); });
     $$('#armed [data-i]').forEach((btn) => btn.addEventListener('click', () => withBusy(btn, t('working'), async () => {
       const device = b.armed[Number(btn.dataset.i)];
       try {
@@ -546,7 +637,7 @@ VIEWS.battery = (view) => {
 
 // App updates through winget.
 VIEWS.updates = (view) => {
-  view.innerHTML = `${header(t('updTitle'), t('updLead'), `<button class="btn ghost" id="rescan">${esc(t('checkAgain'))}</button>`)}<div id="body">${loading(t('checkingUpdates'))}</div>`;
+  view.innerHTML = `${header(t('updTitle'), t('updLead'), `<button class="btn ghost" id="rescan">${esc(t('checkAgain'))}</button>`)}<div id="body">${skeleton(t('checkingUpdates'), 5)}</div>`;
   $('#rescan').onclick = () => { delete cache.updates; route(); };
   load('updates').then((u) => {
     if (!u.available) { $('#body').innerHTML = `<p class="empty">${esc(t('noWinget'))}</p>`; return; }
@@ -591,7 +682,7 @@ VIEWS.updates = (view) => {
 // System-wide ad blocking through DNS.
 const PROVIDERS = ['adguard', 'quad9', 'cloudflare', 'auto'];
 VIEWS.adblock = (view) => {
-  view.innerHTML = `${header(t('dnsTitle'), t('dnsLead'))}<div id="body">${loading(t('loading'))}</div>`;
+  view.innerHTML = `${header(t('dnsTitle'), t('dnsLead'))}<div id="body">${skeleton(t('loading'), 2)}</div>`;
   const render = (s) => {
     const current = s.provider;
     $('#body').innerHTML = `
@@ -623,7 +714,7 @@ let laptopInfo = null;
 
 VIEWS.laptop = (view) => {
   view.innerHTML = `${header(t('lapTitle'), t('lapLead'), `<button class="btn primary" id="pdf">${esc(t('makePdf'))}</button>`)}
-    <section class="card" id="hw">${loading(t('readingHardware'))}</section>
+    <section class="card" id="hw">${skeleton(t('readingHardware'), 4)}</section>
     <section class="tests" id="tests"></section>`;
   Promise.all([load('laptop'), load('battery').catch(() => null)]).then(([info, bat]) => {
     laptopInfo = { info, bat };
@@ -826,7 +917,7 @@ async function makePdf() {
   const { info, bat } = laptopInfo;
   const verdict = (k) => (checks[k] === true ? `<b class="ok">${esc(t('works'))}</b>` : checks[k] === false ? `<b class="bad">${esc(t('problem'))}</b>` : `<span class="muted">${esc(t('notTested'))}</span>`);
   $('#report').innerHTML = `
-    <header><div class="r-brand">${document.querySelector('.brand .mark').outerHTML.replace('id="coin"', 'id="coin-r"').replace('url(#coin)', 'url(#coin-r)')}Hib Clean PC</div>
+    <header><div class="r-brand">${document.querySelector('.brand .mark').outerHTML.replace(/id="hc(\w+)"/g, 'id="hcR$1"').replace(/url\(#hc(\w+)\)/g, 'url(#hcR$1)')}Hib Clean PC</div>
       <div><h1>${esc(t('reportTitle'))}</h1><p>${esc(dateText(new Date().toISOString(), { dateStyle: 'long', timeStyle: 'short' }))}</p></div></header>
     <h2>${esc(t('hwTitle'))}</h2>
     <table>${hwRows(info, bat).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</table>

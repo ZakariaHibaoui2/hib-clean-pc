@@ -4,7 +4,7 @@
 
 First release.
 
-- PC health score with the four most useful fixes.
+- PC health score shown as a liquid orb, with the four most useful fixes and a one-click Quick clean.
 - Clean up: temporary files, browser caches, Windows Update files, error reports, crash dumps, picture previews and the Recycle Bin.
 - Startup apps with Task Manager's on/off switches.
 - Windows clean-up: 12 ads and suggestions switched off with undo, restore point first, and removal of pre-installed junk apps.
