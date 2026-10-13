@@ -29,15 +29,15 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyProduct("Hib Clean PC")]
 [assembly: AssemblyCompany("Zakaria Hibaoui")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyInformationalVersion("1.1.0")]
 
 namespace HibCleanPC
 {
     static class Program
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
         public const string Host = "app.hibclean";
         public static readonly string DataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hib Clean PC");
@@ -248,7 +248,8 @@ namespace HibCleanPC
 
         static void OpenExternal(string uri)
         {
-            if (Regex.IsMatch(uri ?? "", @"^(https://|ms-settings:|ms-windows-store:)", RegexOptions.IgnoreCase))
+            // windowsdefender: only opens pages of the Windows Security app (for the security check).
+            if (Regex.IsMatch(uri ?? "", @"^(https://|ms-settings:|ms-windows-store:|windowsdefender://[a-z]+/?$)", RegexOptions.IgnoreCase))
             {
                 try { Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true }); } catch { }
             }

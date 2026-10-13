@@ -2,8 +2,10 @@
 # so folders deeper than 260 characters (common in temp folders) are handled too.
 # Windows PowerShell 5.1 can't open those paths with its usual commands.
 #
-#   [HibFs]::Scan(root, pattern, recurse)   files (Path, Size, Write in UTC) and folders under root;
+#   [HibFs]::Scan(root, pattern, recurse)   files (Path, Size, Write in UTC, Attributes) and folders under root;
 #                                           never crosses junctions or symlinks
+#   [HibFs]::Scan(root, pattern, recurse, cloud)  the same, but also walks OneDrive's own folders and files
+#                                           (cloud reparse points, which are real folders, not links)
 #   [HibFs]::Delete(path)                   deletes one file, clearing read-only first if needed
 #   [HibFs]::RemoveIfEmpty(path)            removes a folder only if it is empty
 
@@ -43,7 +45,7 @@ public static class HibFs
 
     const uint Directory = 0x10, ReparsePoint = 0x400, Normal = 0x80;
 
-    public class Entry { public string Path; public long Size; public DateTime Write; }
+    public class Entry { public string Path; public long Size; public DateTime Write; public uint Attributes; }
     public class Result
     {
         public List<Entry> Files = new List<Entry>();
@@ -58,7 +60,12 @@ public static class HibFs
         return @"\\?\" + path;
     }
 
-    public static Result Scan(string root, string pattern, bool recurse)
+    // Cloud files (OneDrive and other sync apps) use reparse tags 0x9000xx1A; they are not links.
+    static bool IsCloud(uint tag) { return (tag & 0xFFFF0FFF) == 0x9000001A; }
+
+    public static Result Scan(string root, string pattern, bool recurse) { return Scan(root, pattern, recurse, false); }
+
+    public static Result Scan(string root, string pattern, bool recurse, bool cloud)
     {
         var result = new Result();
         Regex match = string.IsNullOrEmpty(pattern) ? null
@@ -84,7 +91,8 @@ public static class HibFs
                     string full = dir + "\\" + data.Name;
                     bool isDir = (data.Attributes & Directory) != 0;
                     bool reparse = (data.Attributes & ReparsePoint) != 0;
-                    if (reparse) continue;   // junctions and symlinks lead elsewhere: never follow or delete through them
+                    // Junctions and symlinks lead elsewhere: never follow or delete through them.
+                    if (reparse && !(cloud && IsCloud(data.Reserved0))) continue;
                     if (isDir)
                     {
                         if (recurse) { stack.Push(full); result.Dirs.Add(full); }
@@ -93,7 +101,7 @@ public static class HibFs
                     if (match != null && !match.IsMatch(data.Name)) continue;
                     long size = ((long)data.SizeHigh << 32) | data.SizeLow;
                     long time = ((long)(uint)data.Written.dwHighDateTime << 32) | (uint)data.Written.dwLowDateTime;
-                    result.Files.Add(new Entry { Path = full, Size = size, Write = DateTime.FromFileTimeUtc(time) });
+                    result.Files.Add(new Entry { Path = full, Size = size, Write = DateTime.FromFileTimeUtc(time), Attributes = data.Attributes });
                 } while (FindNextFileW(handle, out data));
             }
             finally { FindClose(handle); }

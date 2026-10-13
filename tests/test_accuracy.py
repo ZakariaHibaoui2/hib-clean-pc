@@ -292,6 +292,243 @@ def test_dns():
         check(f"static/automatic DNS of {a['name']} detected correctly", a["static"] == bool(static.strip()))
 
 
+# ---------- security ----------
+def ps_json(command):
+    """Runs a PowerShell one-liner separately from the scripts and returns its JSON."""
+    r = subprocess.run([str(ps.POWERSHELL), "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True)
+    text = r.stdout.decode("utf-8", "replace").strip()
+    return json.loads(text) if text else None
+
+
+def is_admin():
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
+def filetime(ft):
+    return datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(microseconds=ft // 10)
+
+
+def iso(s):
+    """Parses the scripts' ISO times (7 decimal places, Z) to an aware datetime."""
+    m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?", s)
+    frac = (m.group(2) or "0").ljust(6, "0")[:6]
+    return datetime.fromisoformat(f"{m.group(1)}.{frac}+00:00")
+
+
+def test_security():
+    s = {i["id"]: i for i in ps.run("security", {"mode": "report"})["items"]}
+    HKLM = winreg.HKEY_LOCAL_MACHINE
+    W64 = winreg.KEY_WOW64_64KEY
+
+    # Antivirus: Defender's own cmdlet, the Defender registry and Security Center, each read separately.
+    av = s["antivirus"]
+    mp = ps_json("try { Get-MpComputerStatus -ErrorAction Stop | Select-Object AMServiceEnabled, RealTimeProtectionEnabled | ConvertTo-Json -Compress } catch { }")
+    if mp:
+        check("real-time protection matches Get-MpComputerStatus", av["realtime"] == bool(mp["AMServiceEnabled"] and mp["RealTimeProtectionEnabled"]),
+              f"{av['realtime']} vs {mp}")
+    else:
+        check("Defender status not guessed when it can't be read", av["realtime"] is None, av)
+    applied = reg_value(HKLM, r"SOFTWARE\Microsoft\Windows Defender\Signature Updates", "ASSignatureApplied", W64)
+    if applied and av["defsUpdated"]:
+        truth = filetime(int.from_bytes(applied[:8], "little"))
+        check("virus definitions date matches the Defender registry", abs((iso(av["defsUpdated"]) - truth).total_seconds()) < 600,
+              f"{av['defsUpdated']} vs {truth.isoformat()}")
+        check("virus definitions age in days is right", av["defsAgeDays"] == (datetime.now(timezone.utc) - iso(av["defsUpdated"])).days, av["defsAgeDays"])
+    center = ps_json("@(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | ForEach-Object { [ordered]@{ n = $_.displayName; s = [int]$_.productState } }) | ConvertTo-Json -Compress -AsArray") \
+        if False else ps_json("ConvertTo-Json -Compress -InputObject @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | ForEach-Object { [ordered]@{ n = [string]$_.displayName; s = [int]$_.productState } })")
+    if isinstance(center, dict):
+        center = [center]
+    defender = [c for c in (center or []) if "Defender" in c["n"]]
+    if defender and mp:
+        check("Security Center agrees Defender is on/off", ((defender[0]["s"] >> 12) & 0xF == 1) == av["realtime"], f"{defender} vs {av['realtime']}")
+    others = sorted(c["n"] for c in (center or []) if "Defender" not in c["n"] and (c["s"] >> 12) & 0xF == 1)
+    check("other antivirus products match Security Center", sorted(av["others"]) == others, f"{av['others']} vs {others}")
+
+    # Firewall: the registry the firewall service reads (policy wins over local settings).
+    fw = {p["name"]: p["on"] for p in s["firewall"]["profiles"]}
+    for name, local in [("Domain", "DomainProfile"), ("Private", "StandardProfile"), ("Public", "PublicProfile")]:
+        pol = reg_value(HKLM, rf"SOFTWARE\Policies\Microsoft\WindowsFirewall\{name}Profile", "EnableFirewall", W64)
+        val = pol if pol is not None else reg_value(HKLM, rf"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\{local}", "EnableFirewall", W64)
+        check(f"firewall {name} profile matches the registry", fw.get(name) == (val != 0), f"{fw.get(name)} vs {val}")
+
+    # Windows Update: the newest successful install in the update history, read separately.
+    hist = ps_json("$s = New-Object -ComObject Microsoft.Update.Session; $h = $s.CreateUpdateSearcher(); $n = $h.GetTotalHistoryCount(); "
+                   "$d = @($h.QueryHistory(0, [Math]::Min($n, 200)) | Where-Object { $_.Operation -eq 1 -and @(2, 3) -contains [int]$_.ResultCode } | ForEach-Object { $_.Date.ToString('o') }); "
+                   "ConvertTo-Json -Compress -InputObject $d")
+    wu = s["updates"]
+    if hist and wu["lastInstall"]:
+        newest = max(iso(d) for d in hist)
+        check("last update install matches the update history", abs((iso(wu["lastInstall"]) - newest).total_seconds()) < 86400,
+              f"{wu['lastInstall']} vs {newest.isoformat()}")
+    flagged = any(reg_value(HKLM, k, "", W64) is not None or key_exists(HKLM, k)
+                  for k in [r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+                            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"])
+    if flagged:
+        check("pending restart reported when Windows flags one", wu["restartPending"] is True, wu)
+    else:
+        check("no pending restart when Windows flags none", wu["restartPending"] is False, wu)
+
+    # Secure Boot: the firmware state Windows records; Confirm-SecureBootUEFI when we're admin.
+    sb = s["secureboot"]
+    reg_sb = reg_value(HKLM, r"SYSTEM\CurrentControlSet\Control\SecureBoot\State", "UEFISecureBootEnabled", W64)
+    if reg_sb is not None:
+        check("Secure Boot matches the registry", sb["on"] == (reg_sb == 1), f"{sb['on']} vs {reg_sb}")
+    if is_admin():
+        c = ps_json("try { ConvertTo-Json ([bool](Confirm-SecureBootUEFI)) } catch { 'null' }")
+        if c is not None:
+            check("Secure Boot matches Confirm-SecureBootUEFI", sb["on"] == c, f"{sb['on']} vs {c}")
+
+    # TPM: Windows' own tpmtool, which prints the version on its second line in every language.
+    tpm = s["tpm"]
+    lines = [l for l in oem(["tpmtool", "getdeviceinformation"]).splitlines() if l.strip()]
+    m = re.search(r"\b([12]\.\d)\b", lines[1]) if len(lines) > 1 else None
+    if m:
+        check("TPM present matches tpmtool", tpm["present"] is True, tpm)
+        check("TPM version matches tpmtool", tpm["version"] == m.group(1), f"{tpm['version']} vs {m.group(1)}")
+    elif lines:
+        check("no TPM reported when tpmtool finds none", not tpm["present"], tpm)
+
+    # SmartScreen and UAC: the registry values Windows uses.
+    pol = reg_value(HKLM, r"SOFTWARE\Policies\Microsoft\Windows\System", "EnableSmartScreen", W64)
+    exp = reg_value(HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer", "SmartScreenEnabled", W64)
+    want = (pol != 0) if pol is not None else (exp != "Off") if exp else True
+    check("SmartScreen matches the registry", s["smartscreen"]["on"] == want, f"{s['smartscreen']} vs {pol}/{exp}")
+    lua = reg_value(HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "EnableLUA", W64)
+    check("UAC matches the registry", s["uac"]["on"] == (lua != 0), f"{s['uac']['on']} vs {lua}")
+
+    # Drive encryption: manage-bde when we're admin; otherwise Explorer's value, read through a different shell folder.
+    enc = s["encryption"]
+    if is_admin():
+        out = oem(["manage-bde", "-status", os.environ["SystemDrive"]])
+        on = bool(re.search(r"Protection On|Protection activ", out))
+        check("encryption matches manage-bde", (enc["status"] == "on") == on, f"{enc['status']} vs manage-bde")
+    else:
+        code = ps_json("$d = (New-Object -ComObject Shell.Application).NameSpace(17).Items() | Where-Object { $_.Path -eq ($env:SystemDrive + '\\') }; "
+                       "$v = $d.ExtendedProperty('System.Volume.BitLockerProtection'); ConvertTo-Json ([int]$(if ($v) { $v } else { 0 }))")
+        check("encryption matches Explorer's drive list", enc["code"] == code, f"{enc['code']} vs {code}")
+    check("nothing is guessed: unreadable checks say so", all(i["state"] != "unknown" or not i.get("on") for i in s.values()))
+
+
+def key_exists(root, path):
+    try:
+        winreg.CloseKey(winreg.OpenKey(root, path, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY))
+        return True
+    except OSError:
+        return False
+
+
+# ---------- privacy ----------
+STORE = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore"
+
+
+def consent(cap):
+    """Every app Windows recorded for a capability, read straight from the registry: {id: (start, stop)}."""
+    out = {}
+    def walk(path):
+        try:
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, path)
+        except OSError:
+            return
+        i = 0
+        while True:
+            try:
+                sub = winreg.EnumKey(k, i)
+            except OSError:
+                break
+            i += 1
+            if sub == "NonPackaged" and path.endswith(cap):
+                continue
+            def q(n):
+                try:
+                    with winreg.OpenKey(k, sub) as s:
+                        return int(winreg.QueryValueEx(s, n)[0])
+                except OSError:
+                    return 0
+            out[sub] = (q("LastUsedTimeStart"), q("LastUsedTimeStop"))
+        winreg.CloseKey(k)
+    walk(rf"{STORE}\{cap}")
+    walk(rf"{STORE}\{cap}\NonPackaged")
+    return out
+
+
+def test_privacy():
+    p = {c["id"]: c for c in ps.run("privacy", {"mode": "report"})["caps"]}
+    for cap in ["webcam", "microphone", "location"]:
+        raw = consent(cap)
+        used = {k for k, (start, _) in raw.items() if start > 0}
+        live = {k for k, (start, stop) in raw.items() if start > 0 and (stop == 0 or start > stop)}
+        apps = p[cap]["apps"]
+        ids = {i for a in apps for i in a["ids"]}
+        check(f"{cap}: every app Windows recorded is listed", ids == used, f"{sorted(ids ^ used)[:4]}")
+        check(f"{cap}: apps using it right now match the registry", {i for a in apps if a["inUse"] for i in a["ids"]} == live)
+        times_ok = all(abs((iso(a["lastStart"]) - filetime(max(raw[i][0] for i in a["ids"]))).total_seconds()) < 0.001 for a in apps)
+        check(f"{cap}: last-used times match the registry", times_ok)
+        user = reg_value(winreg.HKEY_CURRENT_USER, rf"{STORE}\{cap}", "Value")
+        device = reg_value(winreg.HKEY_LOCAL_MACHINE, rf"{STORE}\{cap}", "Value", winreg.KEY_WOW64_64KEY)
+        check(f"{cap}: access on/off matches the registry", p[cap]["on"] == (user != "Deny" and device != "Deny"), f"{p[cap]['on']} vs {user}/{device}")
+
+
+# ---------- big files ----------
+FOLDERS = {"downloads": "{374DE290-123F-4565-9164-39C4925E467B}", "desktop": "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+           "documents": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}", "videos": "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}",
+           "pictures": "{33E28130-4E1E-4676-835A-98395C3BC3BB}", "music": "{4BD8D571-6D19-48D3-BE97-422220080E43}"}
+
+
+def known_folder(guid):
+    class GUID(ctypes.Structure):
+        _fields_ = [("a", ctypes.c_ulong), ("b", ctypes.c_ushort), ("c", ctypes.c_ushort), ("d", ctypes.c_ubyte * 8)]
+    g = GUID()
+    ctypes.windll.ole32.CLSIDFromString(guid, ctypes.byref(g))
+    out = ctypes.c_wchar_p()
+    if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) != 0:
+        return None
+    path = out.value
+    ctypes.windll.ole32.CoTaskMemFree(out)
+    return path
+
+
+def test_bigfiles():
+    r = ps.run("bigfiles", {"mode": "scan"}, timeout=600)
+    shown = {f["id"]: f["path"].lower() for f in r["folders"]}
+    for fid, guid in FOLDERS.items():
+        path = known_folder(guid)
+        if fid in shown and path:
+            check(f"big files: {fid} folder is Windows' own", shown[fid] == path.lower().rstrip("\\"), f"{shown[fid]} vs {path}")
+    # Independent walk of the same folders: not through junctions or symlinks (OneDrive's own folders are
+    # walked: they are real folders), cloud-only OneDrive files skipped.
+    cloud = 0x1000 | 0x40000 | 0x400000
+    files = []
+    for f in r["folders"]:
+        stack = [f["path"]]
+        while stack:
+            d = stack.pop()
+            try:
+                entries = list(os.scandir(d))
+            except OSError:
+                continue
+            for e in entries:
+                try:
+                    if e.is_symlink() or e.is_junction():
+                        continue
+                    st = e.stat(follow_symlinks=False)
+                    if e.is_dir(follow_symlinks=False):
+                        stack.append(e.path)
+                    elif not st.st_file_attributes & cloud:
+                        files.append((e.path, st.st_size, st.st_mtime, f["id"]))
+                except OSError:
+                    pass
+    big = sorted([x for x in files if x[1] >= 100 * 2**20], key=lambda x: -x[1])[:30]
+    # Files of equal size may come in either order, so compare the sizes in order and the paths as a set.
+    walked = {x[0].lower() for x in files if x[1] >= 100 * 2**20}
+    check("big files: the same top files as an independent walk", [b["size"] for b in r["big"]] == [x[1] for x in big]
+          and all(b["path"].lower() in walked for b in r["big"]), f"{len(r['big'])} vs {len(big)}")
+    check("big files: sizes match os.stat", all(os.stat(b["path"]).st_size == b["size"] for b in r["big"] if os.path.exists(b["path"])))
+    cutoff = time.time() - 30 * 86400
+    inst = {x[0].lower() for x in files if x[3] == "downloads" and x[2] < cutoff and Path(x[0]).suffix.lower() in (".exe", ".msi", ".iso", ".zip")}
+    check("old installers match an independent walk of Downloads", {i["path"].lower() for i in r["installers"]} == inst,
+          f"{len(r['installers'])} vs {len(inst)}")
+
+
 # ---------- health score ----------
 def test_score():
     r = subprocess.run(["node", str(ROOT / "tests" / "score.test.mjs")], capture_output=True, text=True)

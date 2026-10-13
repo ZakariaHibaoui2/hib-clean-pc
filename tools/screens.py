@@ -1,23 +1,48 @@
 """Captures the README and website screenshots from the real app, read-only.
 The serial number is replaced with dots before the laptop check is captured.
 
-Run: python tools/screens.py      -> assets/screens/*.png
+Run: python tools/screens.py                 -> assets/screens/*.png
+     python tools/screens.py --out <folder>  -> somewhere else (to look before replacing them)
 """
 import os
+import shutil
 import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "assets" / "screens"
+OUT = Path(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv else ROOT / "assets" / "screens"
 OUT.mkdir(parents=True, exist_ok=True)
 PORT = 9334
 
 
+# The big files screen shows sample files from a sandbox in TEMP rather than your own files.
+# They are sparse: they report their size but take almost no space on the disk.
+SAMPLES = [("Windows 11 24H2.iso", 5.6, 120), ("Holiday 2025.mp4", 2.3, 12), ("Game recording.mkv", 1.4, 3),
+           ("Project backup.zip", 0.85, 75), ("Podcast raw.wav", 0.64, 20), ("VirtualBox-7.1-Win.exe", 0.11, 200),
+           ("SteamSetup.exe", 0.0023, 400)]
+
+
+def samples():
+    root = Path(tempfile.mkdtemp(prefix="hibclean-screens-"))
+    for name, gb, days in SAMPLES:
+        f = root / name
+        f.touch()
+        subprocess.run(["fsutil", "sparse", "setflag", str(f)], capture_output=True)
+        os.truncate(f, int(gb * 2**30))
+        t = time.time() - days * 86400
+        os.utime(f, (t, t))
+    return root
+
+
 def main():
-    env = {**os.environ, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={PORT}", "HIB_READONLY": "1"}
+    sandbox = samples()
+    env = {**os.environ, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={PORT}", "HIB_READONLY": "1",
+           "HIB_TEST_BIGFILES_ROOT": str(sandbox)}
     proc = subprocess.Popen([str(ROOT / "dist" / "HibCleanPC.exe")], env=env)
     try:
         with sync_playwright() as p:
@@ -62,9 +87,20 @@ def main():
               }
             }"""
             shot("laptop", "laptop", "#hw .kv", before=hide_serial)
+            # New in 1.1. Nothing personal beyond file and app names; no serial numbers on these screens.
+            shot("security", "security", "#sec .row")
+            shot("security-ar", "security", "#sec .row", lang="ar")
+            shot("bigfiles", "bigfiles", "#big-card")
+            shot("privacy", "privacy", "#priv-summary")
+            shot("privacy-fr", "privacy", "#priv-summary", lang="fr")
             browser.close()
     finally:
         proc.terminate()
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        shutil.rmtree(sandbox, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -91,11 +91,17 @@ const loaders = {
   updates: () => bridge('updates', { mode: 'list' }),
   dns: () => bridge('dns', { mode: 'status' }),
   laptop: () => bridge('laptop'),
+  security: () => bridge('security', { mode: 'report' }),
+  bigfiles: () => bridge('bigfiles', { mode: 'scan' }),
+  privacy: () => bridge('privacy', { mode: 'report' }),
 };
 function load(key, force = false) {
   if (force || !cache[key]) cache[key] = loaders[key]();
   return cache[key];
 }
+
+// Security checks that need a look (state 'warn'); unread ones never count.
+const secWarnings = (s) => (s && Array.isArray(s.items) ? s.items.filter((i) => i.state === 'warn') : []);
 
 // ---------- Health score ----------
 // Starts at 100; each problem found takes points off and becomes a suggested fix.
@@ -137,6 +143,16 @@ function healthOf(d) {
     else if (n > 0) add(5, 'fixUpdates', 'updates', { n });
   }
   if (d.dns && !d.dns.blocking) add(5, 'fixDns', 'adblock', {});
+  // Security: only what was actually read counts; a check Windows wouldn't show costs nothing.
+  if (d.security && Array.isArray(d.security.items)) {
+    const sec = Object.fromEntries(d.security.items.map((i) => [i.id, i]));
+    if (sec.antivirus && sec.antivirus.protected === false) add(10, 'fixAv', 'security', {});
+    const fw = sec.firewall;
+    if (fw && fw.state === 'warn') {
+      const off = (fw.profiles || []).filter((p) => p.on === false).length;
+      if (off > 0) add(8, 'fixFirewall', 'security', { n: off });
+    }
+  }
   const score = Math.max(0, Math.min(100, 100 - issues.reduce((s, i) => s + i.weight, 0)));
   return { score, issues: issues.sort((a, b) => b.weight - a.weight) };
 }
@@ -151,8 +167,11 @@ const ICONS = {
   updates: '<path d="M12 4v11"/><path d="M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/>',
   adblock: '<path d="M12 3 19.5 6v5.5c0 4.4-3.1 8.2-7.5 9.5-4.4-1.3-7.5-5.1-7.5-9.5V6z"/><path d="M8.5 12h7"/>',
   laptop: '<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 18.5h18"/>',
+  bigfiles: '<path d="M6.5 3.5h7.5l4 4v13h-11.5z"/><path d="M14 3.5v4h4"/><path d="M9.5 17.5v-3M12.25 17.5v-5.5M15 17.5v-2"/>',
+  security: '<path d="M12 3 19.5 6v5.5c0 4.4-3.1 8.2-7.5 9.5-4.4-1.3-7.5-5.1-7.5-9.5V6z"/><path d="m8.8 12.2 2.2 2.2 4.3-4.6"/>',
+  privacy: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
 };
-const SECTIONS = ['home', 'clean', 'startup', 'windows', 'battery', 'updates', 'adblock', 'laptop'];
+const SECTIONS = ['home', 'clean', 'bigfiles', 'startup', 'windows', 'security', 'privacy', 'battery', 'updates', 'adblock', 'laptop'];
 
 function renderNav(active) {
   $('#nav').innerHTML = SECTIONS.map((s) => `
@@ -174,11 +193,12 @@ async function updateBadges() {
     el.textContent = text ?? '';
   };
   const settled = async (key) => { try { return cache[key] ? await cache[key] : null; } catch (e) { return null; } };
-  const [junk, updates, dns, tweaks] = await Promise.all(['junk', 'updates', 'dns', 'tweaks'].map(settled));
+  const [junk, updates, dns, tweaks, security] = await Promise.all(['junk', 'updates', 'dns', 'tweaks', 'security'].map(settled));
   if (junk) { const b = junkTotal(junk); set('clean', b > 100 * 2 ** 20 ? bytes(b) : null, b > 2 ** 30 ? 'warn' : ''); }
   if (updates && updates.available) set('updates', updates.apps.length ? num(updates.apps.length) : null, 'warn');
   if (tweaks) { const n = tweaks.filter((x) => !x.applied).length; set('windows', n ? num(n) : null, ''); }
   if (dns) set('adblock', '', dns.blocking ? 'dot ok' : 'dot');
+  if (security) { const n = secWarnings(security).length; set('security', n ? num(n) : '', n ? 'warn' : 'dot ok'); }
 }
 
 function route() {
@@ -346,7 +366,7 @@ VIEWS.home = (view) => {
   $('#gauge .score').id = 'score';
   $('#rescan').onclick = () => { for (const k of Object.keys(cache)) delete cache[k]; route(); };
 
-  const keys = ['system', 'junk', 'startup', 'tweaks', 'apps', 'battery', 'updates', 'dns'];
+  const keys = ['system', 'junk', 'startup', 'tweaks', 'apps', 'battery', 'updates', 'dns', 'security'];
   const got = {};
   const done = keys.map((k) => load(k).then((v) => { got[k] = v; tiles(got); updateBadges(); if (k === 'junk') quick(v); }, () => {}));
   Promise.all(done).then(() => {
@@ -396,6 +416,10 @@ function tiles(d) {
   if (d.battery && d.battery.hasBattery) items.push({ k: t('tileBattery'), v: `${num(d.battery.health)}%`, s: t('tileBatterySub'), href: '#battery' });
   if (d.updates && d.updates.available) items.push({ k: t('tileUpdates'), v: num(d.updates.apps.length), s: t('tileUpdatesSub'), href: '#updates' });
   if (d.dns) items.push({ k: t('tileAds'), v: d.dns.blocking ? t('on') : t('off'), s: t('tileAdsSub'), href: '#adblock' });
+  if (d.security) {
+    const n = secWarnings(d.security).length;
+    items.push({ k: t('tileSecurity'), v: n ? num(n) : '✓', s: t(n ? 'tileSecurityWarn' : 'tileSecurityOk'), href: '#security' });
+  }
   el.innerHTML = items.map((i) => `
     <${i.href ? `a href="${i.href}"` : 'div'} class="tile">
       <span class="tile-k">${esc(i.k)}</span><span class="tile-v">${esc(i.v)}</span><span class="tile-s">${esc(i.s)}</span>
@@ -765,6 +789,210 @@ VIEWS.adblock = (view) => {
     });
   };
   load('dns').then(render, (err) => { $('#body').innerHTML = errorBox(err); });
+};
+
+// ---------- Security check ----------
+// Read-only. Each item says in plain words whether it's fine, with a button to the Windows page for it.
+const SEC_ORDER = ['antivirus', 'firewall', 'updates', 'encryption', 'secureboot', 'tpm', 'smartscreen', 'uac'];
+const dayText = (iso) => dateText(iso, { day: 'numeric', month: 'long', year: 'numeric' });
+const daysSince = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+function secText(i) {
+  if (i.state === 'unknown') return t('secUnknownText');
+  switch (i.id) {
+    case 'antivirus':
+      if (i.realtime) {
+        if (i.defsAgeDays > 7) return t('avOld', { n: num(i.defsAgeDays) });
+        return i.defsUpdated ? t('avOn', { when: dayText(i.defsUpdated) }) : t('avOnNoDate');
+      }
+      return (i.others || []).length ? t('avOther', { name: i.others.join(', ') }) : t('avOff');
+    case 'firewall': {
+      const off = (i.profiles || []).filter((p) => !p.on);
+      if ((i.others || []).length && off.length) return t('fwOther', { name: i.others.join(', ') });
+      return off.length ? t('fwOff', { list: off.map((p) => t('fw_' + p.name)).join(', ') }) : t('fwOn');
+    }
+    case 'updates': {
+      const parts = [];
+      if (i.lastInstall) parts.push(daysSince(i.lastInstall) > 45 ? t('wuOld', { n: num(daysSince(i.lastInstall)) }) : t('wuOk', { when: dayText(i.lastInstall) }));
+      if (i.restartPending) parts.push(t('wuRestart'));
+      return parts.join(' ');
+    }
+    case 'encryption': return t('enc_' + i.status);
+    case 'secureboot': return i.supported === false ? t('sbNone') : t(i.on ? 'sbOn' : 'sbOff');
+    case 'tpm':
+      if (!i.present) return t('tpmNone');
+      return Number(i.version) >= 2 ? t('tpmOk', { v: i.version }) : t('tpmOld', { v: i.version || '?' });
+    case 'smartscreen': return t(i.on ? 'ssOn' : 'ssOff');
+    case 'uac': return t(!i.on ? 'uacOff' : i.neverNotify ? 'uacNever' : 'uacOn');
+    default: return '';
+  }
+}
+
+const STATE_CHIP = { ok: ['ok', 'stOk'], warn: ['', 'stWarn'], info: ['soft', 'stInfo'], unknown: ['soft', 'stUnknown'] };
+VIEWS.security = (view) => {
+  view.innerHTML = `${header(t('secTitle'), t('secLead'), `<button class="btn ghost" id="rescan">${esc(t('checkAgain'))}</button>`)}
+    <div id="body">${skeleton(t('secChecking'), 6)}</div>`;
+  $('#rescan').onclick = () => { delete cache.security; route(); };
+  load('security').then((s) => {
+    const byId = Object.fromEntries(s.items.map((i) => [i.id, i]));
+    const items = SEC_ORDER.map((id) => byId[id]).filter(Boolean);
+    const warn = items.filter((i) => i.state === 'warn').length;
+    const unknown = items.filter((i) => i.state === 'unknown').length;
+    $('#body').innerHTML = `
+      <div class="status-line ${warn ? 'warn' : 'on'}" id="sec-summary"><span class="dot" aria-hidden="true"></span>
+        <b>${esc(warn ? t(warn === 1 ? 'secAttentionOne' : 'secAttention', { n: num(warn) }) : t('secAllOk'))}</b>
+        <span>${esc(unknown ? t('secSomeUnknown', { n: num(unknown) }) : t(warn ? 'secAttentionSub' : 'secAllOkSub'))}</span></div>
+      <ul class="rows sec-list" id="sec">${items.map((i) => {
+        const [chip, label] = STATE_CHIP[i.state] || STATE_CHIP.unknown;
+        return `
+        <li class="row" data-id="${i.id}" data-state="${i.state}">
+          <span class="state ${i.state === 'ok' ? 'done' : i.state}" aria-hidden="true"></span>
+          <span class="row-main"><b>${esc(t('sec_' + i.id))}</b><small class="wrap">${esc(secText(i))}${i.id === 'uac' ? ` ${esc(t('uacHow'))}` : ''}</small></span>
+          <span class="row-side"><span class="chip ${chip}">${esc(t(label))}</span>${i.url && i.state !== 'info' ? `<button class="btn small ghost" data-url="${esc(i.url)}">${esc(t('openSettings'))}</button>` : ''}</span>
+        </li>`;
+      }).join('')}</ul>
+      <p class="fine">${esc(t('secFine'))}</p>`;
+    $('#sec').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-url]');
+      if (b) bridge('host.open', { url: b.dataset.url });
+    });
+    updateBadges();
+  }, (err) => {
+    $('#body').innerHTML = errorBox(err, 'retry');
+    $('#retry').onclick = () => { delete cache.security; route(); };
+  });
+};
+
+// ---------- Big files ----------
+// The largest files in your own folders, and old installers in Downloads. Files only ever go
+// to the Recycle Bin, so they can be put back.
+VIEWS.bigfiles = (view) => {
+  view.innerHTML = `${header(t('bigTitle'), t('bigLead'), `<button class="btn ghost" id="rescan">${esc(t('scanAgain'))}</button>`)}
+    <div id="body">${skeleton(t('bigScanning'), 6)}</div>`;
+  $('#rescan').onclick = () => { delete cache.bigfiles; route(); };
+  load('bigfiles').then((r) => renderBig(r), (err) => {
+    $('#body').innerHTML = errorBox(err, 'retry');
+    $('#retry').onclick = () => { delete cache.bigfiles; route(); };
+  });
+};
+
+function renderBig(r) {
+  const body = $('#body');
+  if (!body || $('#view').dataset.section !== 'bigfiles') return;
+  const sizes = {};
+  for (const f of [...r.big, ...r.installers]) sizes[f.path] = f.size;
+  const max = Math.max(1, ...r.big.map((f) => f.size), ...r.installers.map((f) => f.size));
+  const list = (files, id) => `<ul class="rows checks compact files" id="${id}">${files.map((f) => `
+    <li><label class="row">
+      <input type="checkbox" value="${esc(f.path)}">
+      <span class="row-main"><b title="${esc(f.path)}">${esc(f.name)}</b>
+        <small>${esc(t('folder_' + f.folder))} · ${esc(t('changedOn', { date: dayText(f.modified) }))}</small>
+        <span class="size-bar" aria-hidden="true"><i style="width:${Math.max(2, Math.round(100 * f.size / max))}%"></i></span></span>
+      <span class="row-side"><b class="size">${esc(bytes(f.size))}</b><button type="button" class="btn link" data-reveal="${esc(f.path)}">${esc(t('showInFolder'))}</button></span>
+    </label></li>`).join('')}</ul>`;
+  const total = (files) => files.reduce((n, f) => n + f.size, 0);
+  const any = r.big.length || r.installers.length;
+  body.innerHTML = `
+    <section class="card" id="big-card">
+      <div class="card-head"><h2>${esc(t('bigLargest'))}</h2>${r.big.length ? `<span class="chip soft">${esc(t('bigCount', { n: num(r.big.length), size: bytes(total(r.big)) }))}</span>` : ''}</div>
+      <p class="fine">${esc(t('bigLargestSub', { size: bytes(r.minBytes) }))}</p>
+      ${r.big.length ? list(r.big, 'big') : `<p class="empty">${esc(t('bigNone', { size: bytes(r.minBytes) }))}</p>`}
+    </section>
+    <section class="card" id="inst-card">
+      <div class="card-head"><h2>${esc(t('bigInstallers'))}</h2>${r.installers.length ? `<span class="chip soft">${esc(t('bigCount', { n: num(r.installers.length), size: bytes(total(r.installers)) }))}</span>` : ''}</div>
+      <p class="fine">${esc(t('bigInstallersSub', { n: num(r.installerDays) }))}</p>
+      ${r.installers.length ? list(r.installers, 'inst') : `<p class="empty">${esc(t('bigNoInstallers'))}</p>`}
+    </section>
+    <p class="fine" id="big-where">${esc(t('bigLooked', { list: r.folders.map((f) => t('folder_' + f.id)).join(', ') }))} ${esc(t('bigFine'))}</p>
+    ${any ? `<div class="bar-actions sticky"><p id="sel"></p><button class="btn primary" id="bin" disabled>${esc(t('toBin'))}</button></div>` : ''}`;
+  if (!any) return;
+
+  const chosen = () => [...new Set($$('#body .files input:checked').map((i) => i.value))];
+  const update = () => {
+    const paths = chosen();
+    const size = paths.reduce((n, p) => n + (sizes[p] || 0), 0);
+    $('#sel').textContent = paths.length ? t('bigSelected', { n: num(paths.length), size: bytes(size) }) : t('bigPick');
+    $('#bin').disabled = paths.length === 0;
+    $('#bin').textContent = paths.length ? t('toBinN', { n: num(paths.length) }) : t('toBin');
+    delete $('#bin').dataset.confirm;
+  };
+  $$('#body .files').forEach((ul) => {
+    ul.addEventListener('change', (e) => {
+      const box = e.target;
+      // The same file can be in both lists; keep its boxes together.
+      for (const other of $$('#body .files input')) if (other.value === box.value) other.checked = box.checked;
+      update();
+    });
+    ul.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-reveal]');
+      if (!b) return;
+      e.preventDefault();
+      bridge('host.reveal', { path: b.dataset.reveal });
+    });
+  });
+  update();
+
+  // Two clicks: the first turns the button into "Click again", the second moves the files.
+  $('#bin').onclick = async (e) => {
+    const b = e.currentTarget;
+    const paths = chosen();
+    if (!paths.length) return;
+    const size = paths.reduce((n, p) => n + (sizes[p] || 0), 0);
+    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = t('confirmBin', { n: num(paths.length), size: bytes(size) }); return; }
+    delete b.dataset.confirm;
+    await withBusy(b, t('moving'), async () => {
+      try {
+        const res = await bridge('bigfiles', { mode: 'recycle', paths });
+        const ok = res.results.filter((x) => x.ok).length;
+        const bad = res.results.filter((x) => !x.ok);
+        if (bad.length) toast(t('binPartly', { ok: num(ok), bad: num(bad.length), why: t('binErr_' + bad[0].error) }), 'bad');
+        else toast(t('binDone', { n: num(ok), size: bytes(res.freed) }), 'ok');
+        delete cache.bigfiles; delete cache.system; delete cache.junk;
+        renderBig(await load('bigfiles'));
+      } catch (err) { toast(failure(err), 'bad'); }
+    });
+  };
+}
+
+// ---------- Privacy ----------
+// Who used the camera, microphone and location, from Windows' own record.
+const CAPS = {
+  webcam: { url: 'ms-settings:privacy-webcam', icon: '<rect x="3" y="6.5" width="13" height="11" rx="2.5"/><path d="m16 10.5 5-3v9l-5-3z"/>' },
+  microphone: { url: 'ms-settings:privacy-microphone', icon: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>' },
+  location: { url: 'ms-settings:privacy-location', icon: '<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>' },
+};
+VIEWS.privacy = (view) => {
+  view.innerHTML = `${header(t('privTitle'), t('privLead'), `<button class="btn ghost" id="rescan">${esc(t('checkAgain'))}</button>`)}
+    <div id="body">${skeleton(t('loading'), 5)}</div>`;
+  $('#rescan').onclick = () => { delete cache.privacy; route(); };
+  load('privacy').then((p) => {
+    if ($('#view').dataset.section !== 'privacy') return;
+    const live = p.caps.flatMap((c) => c.apps.filter((a) => a.inUse));
+    $('#body').innerHTML = `
+      <div class="status-line ${live.length ? 'warn' : 'on'}" id="priv-summary"><span class="dot" aria-hidden="true"></span>
+        <b>${esc(live.length ? t('privNow', { list: [...new Set(live.map((a) => a.name))].join(', ') }) : t('privNowNone'))}</b>
+        <span>${esc(t('privNowSub'))}</span></div>
+      ${p.caps.map((c) => `
+      <section class="card cap" id="cap-${c.id}">
+        <div class="card-head">
+          <h2 class="cap-title"><span class="cap-ico" aria-hidden="true"><svg viewBox="0 0 24 24">${CAPS[c.id].icon}</svg></span>${esc(t('cap_' + c.id))}</h2>
+          <span class="cap-side"><span class="chip ${c.on ? 'ok' : 'bad'}">${esc(t(c.on ? 'capOn' : 'capOff'))}</span>
+            ${c.on && !c.desktopApps ? `<span class="chip soft">${esc(t('desktopAppsOff'))}</span>` : ''}
+            <button class="btn small ghost" data-url="${CAPS[c.id].url}">${esc(t('openSettings'))}</button></span>
+        </div>
+        ${c.apps.length ? `<ul class="rows compact">${c.apps.map((a) => `
+          <li class="row ${a.inUse ? 'live-row' : ''}">
+            <span class="state ${a.inUse ? 'live' : ''}" aria-hidden="true"></span>
+            <span class="row-main"><b>${esc(a.name)}</b><small>${esc(t(a.packaged ? 'kindStore' : 'kindDesktop'))}</small></span>
+            <span class="row-side">${a.inUse ? `<span class="chip">${esc(t('inUseNow'))}</span>` : `<small>${esc(t('lastUsed', { date: dateText(a.lastStop || a.lastStart) }))}</small>`}</span>
+          </li>`).join('')}</ul>` : `<p class="empty">${esc(t('privNoneUsed'))}</p>`}
+      </section>`).join('')}
+      <p class="fine">${esc(t('privFine'))}</p>`;
+    $('#body').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-url]');
+      if (b) bridge('host.open', { url: b.dataset.url });
+    });
+  }, (err) => { $('#body').innerHTML = errorBox(err); });
 };
 
 // ---------- Used laptop check ----------

@@ -83,4 +83,25 @@ edge.system.drive.free = 100 * GB;
 edge.junk = [{ id: 'user-temp', readable: true, bytes: GB }];
 expect('exactly 10% free costs 10 points; exactly 1 GB of junk costs none', healthOf(edge).score, 90);
 
+// Security (1.1): only what was actually read can cost points.
+const secure = (items) => ({ ...base(), security: { items } });
+const av = (x) => ({ id: 'antivirus', state: 'ok', protected: true, realtime: true, others: [], ...x });
+const fw = (on, x = {}) => ({ id: 'firewall', state: on.every(Boolean) ? 'ok' : 'warn', others: [],
+  profiles: ['Domain', 'Private', 'Public'].map((name, i) => ({ name, on: on[i] })), ...x });
+expect('security all on scores 100', healthOf(secure([av(), fw([true, true, true])])).score, 100);
+r = healthOf(secure([av({ state: 'warn', protected: false, realtime: false }), fw([true, true, true])]));
+expect('real-time protection off costs 10', r.score, 90);
+expect('real-time protection off is a fix on the security screen', r.issues.map((i) => [i.key, i.section]), [['fixAv', 'security']]);
+r = healthOf(secure([av(), fw([true, false, false])]));
+expect('firewall off for 2 networks costs 8', r.score, 92);
+expect('firewall fix says how many networks', r.issues[0].vars, { n: 2 });
+expect('both security problems: 100 - (10+8) = 82', healthOf(secure([av({ state: 'warn', protected: false }), fw([false, false, false])])).score, 82);
+expect('another antivirus on is not marked down', healthOf(secure([av({ realtime: false, others: ['Other AV'] }), fw([true, true, true])])).score, 100);
+expect('firewall handled by another product is not marked down', healthOf(secure([av(), { ...fw([false, false, false]), state: 'ok', others: ['Other FW'] }])).score, 100);
+expect('unreadable security checks cost nothing', healthOf(secure([av({ state: 'unknown', protected: null, realtime: null }),
+  { id: 'firewall', state: 'unknown', profiles: [], others: [] }])).score, 100);
+expect('other security warnings (encryption, TPM...) cost nothing', healthOf(secure([av(), fw([true, true, true]),
+  { id: 'encryption', state: 'warn' }, { id: 'tpm', state: 'warn' }, { id: 'updates', state: 'warn' }])).score, 100);
+expect('a security report without items costs nothing', healthOf({ ...base(), security: {} }).score, 100);
+
 process.exit(failed ? 1 : 0);

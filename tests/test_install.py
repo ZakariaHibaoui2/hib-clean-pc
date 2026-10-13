@@ -48,7 +48,7 @@ def main():
     check("Start menu shortcut", start.exists())
     check("Desktop shortcut", desk.exists())
     entry = uninstall_entry()
-    check("listed in Settings > Apps", entry is not None and entry["DisplayName"] == "Hib Clean PC" and entry["DisplayVersion"] == "1.0.0", str(entry))
+    check("listed in Settings > Apps", entry is not None and entry["DisplayName"] == "Hib Clean PC" and entry["DisplayVersion"] == "1.1.0", str(entry))
     if entry:
         r = subprocess.run(entry["UninstallString"], shell=True, capture_output=True, text=True)
         check("uninstall runs", r.returncode == 0, r.stderr[-300:])

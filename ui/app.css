@@ -262,7 +262,7 @@ label.row:hover, .rows .row:hover { background: rgba(234, 246, 250, .025); }
 .ghost-row { list-style: none; }
 
 /* One strip of readings rather than a grid of identical cards. */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); margin-top: 36px; border-radius: 22px; background: var(--glass); box-shadow: var(--e2); overflow: hidden; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); margin-top: 36px; border-radius: 22px; background: var(--glass); box-shadow: var(--e2); overflow: hidden; }
 .tiles:empty { display: none; }
 .tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 16px 15px; text-decoration: none; border-inline-start: 1px solid rgba(22, 64, 90, .8); transition: background 160ms ease; }
 .tile:first-child { border-inline-start: 0; }
@@ -369,3 +369,31 @@ a.tile:focus-visible { outline-offset: -3px; border-radius: 20px; }
 .bar-actions.sticky { position: sticky; bottom: -70px; z-index: 5; margin: 18px -16px 0; padding: 14px 16px; border-radius: 16px;
   background: rgba(7, 26, 38, .97); box-shadow: inset 0 0 0 1px var(--shoal), 0 -18px 30px -18px rgba(0, 0, 0, .8); }
 main .bar-actions.sticky { bottom: 16px; }
+
+/* ---------- Security, big files, privacy ---------- */
+/* Status dots: lagoon = fine (.done), sun = worth a look, hollow = couldn't be read, haze = not on this PC. */
+.state.warn { background: var(--sun); box-shadow: 0 0 10px rgba(255, 199, 90, .5); }
+.state.info { background: rgba(141, 179, 196, .45); }
+.state.unknown { background: transparent; box-shadow: inset 0 0 0 2px var(--haze); }
+.state.live { background: var(--sun); animation: pulse 1.4s ease-in-out infinite; }
+.status-line.warn { background: rgba(255, 199, 90, .08); box-shadow: inset 0 0 0 1px rgba(255, 199, 90, .3); }
+.status-line.warn .dot { background: var(--sun); box-shadow: 0 0 0 5px rgba(255, 199, 90, .14), 0 0 14px var(--sun); }
+.status-line + .rows, .status-line + .card { margin-top: 18px; }
+.sec-list .row-main small { line-height: 1.45; }
+.sec-list .row-side .chip { min-width: 0; }
+
+/* Each big file carries a thin waterline: how big it is next to the biggest one. */
+.size-bar { display: block; height: 3px; margin-top: 7px; border-radius: 3px; background: rgba(22, 64, 90, .7); overflow: hidden; max-width: 420px; }
+.size-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--lagoon-deep), var(--lagoon)); box-shadow: 0 0 8px rgba(57, 224, 198, .5); }
+[dir="rtl"] .size-bar i { background: linear-gradient(270deg, var(--lagoon-deep), var(--lagoon)); }
+.files .row-side .size { font-variant-numeric: tabular-nums; min-width: 64px; text-align: end; }
+.files .btn.link { font-size: 13px; }
+
+.cap .card-head { flex-wrap: wrap; }
+.cap-title { display: flex; align-items: center; gap: 12px; }
+.cap-ico { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 11px;
+  background: linear-gradient(180deg, rgba(57, 224, 198, .2), rgba(31, 169, 201, .06)); box-shadow: inset 0 1px 0 rgba(234, 246, 250, .16), inset 0 0 0 1px rgba(57, 224, 198, .2); }
+.cap-ico svg { width: 19px; height: 19px; fill: none; stroke: var(--lagoon); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cap-side { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.live-row { background: rgba(255, 199, 90, .06); }
+.card > .fine + .rows, .card > .fine + .empty { margin-top: 14px; }

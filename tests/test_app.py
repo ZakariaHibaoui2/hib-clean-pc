@@ -6,8 +6,10 @@ the PC. Screenshots go to tests/screenshots/.
 Run: python tests/test_app.py
 """
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -49,14 +51,26 @@ def wait(fn, timeout=60):
     return None
 
 
-def launch(lang_page=None):
+def launch(extra=None):
     # HIB_READONLY: the app refuses every action that would change this PC.
-    env = {**os.environ, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={PORT}", "HIB_READONLY": "1"}
+    env = {**os.environ, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={PORT}", "HIB_READONLY": "1", **(extra or {})}
     return subprocess.Popen([str(EXE)], env=env)
 
 
+def big_sandbox():
+    """Files for the big files screen, in TEMP, so the test never shows or touches your own files."""
+    root = Path(os.path.realpath(tempfile.mkdtemp(prefix="hibclean-app-")))
+    for name, mb, days in [("film.mkv", 6, 2), ("backup.zip", 4, 90), ("setup.exe", 0.2, 60), ("notes.txt", 0.01, 60)]:
+        f = root / name
+        f.write_bytes(bytes(int(mb * 2**20)))
+        t = time.time() - days * 86400
+        os.utime(f, (t, t))
+    return root, {"HIB_TEST_BIGFILES_ROOT": str(root), "HIB_TEST_BIGFILES_MIN": str(2**20)}
+
+
 def main():
-    proc = launch()
+    sandbox, big_env = big_sandbox()
+    proc = launch(big_env)
     errors = []
     try:
         with sync_playwright() as p:
@@ -104,7 +118,8 @@ def main():
             # The screen shows exactly what the scripts measured.
             truth = {"battery": ps.run("battery", {"mode": "report"}), "startup": ps.run("startup", {"mode": "list"}),
                      "updates": ps.run("updates", {"mode": "list"}), "tweaks": ps.run("tweaks", {"mode": "list"}),
-                     "laptop": ps.run("laptop")}
+                     "laptop": ps.run("laptop"), "security": ps.run("security", {"mode": "report"}),
+                     "privacy": ps.run("privacy", {"mode": "report"}), "bigfiles": ps.run("bigfiles", {"mode": "scan"}, env=big_env)}
             tiles = page.inner_text("#tiles")
             if truth["battery"]["hasBattery"]:
                 check("home shows the real battery health", f"{round(truth['battery']['health'])}%" in tiles.replace(",", "."), tiles)
@@ -137,6 +152,45 @@ def main():
             check("update list matches winget", page.locator("#list .row").count() == len(truth["updates"]["apps"]))
             visit("adblock", ".choice", "ad blocking")
             check("ad blocking offers 4 choices", page.locator(".choice").count() == 4)
+            # Security check: one row per check, each in the state the script read.
+            visit("security", "#sec .row", "security check")
+            order = ["antivirus", "firewall", "updates", "encryption", "secureboot", "tpm", "smartscreen", "uac"]
+            want = [(i["id"], i["state"]) for i in sorted(truth["security"]["items"], key=lambda i: order.index(i["id"]))]
+            got = [tuple(x) for x in page.eval_on_selector_all("#sec .row", "els => els.map((e) => [e.dataset.id, e.dataset.state])")]
+            check("security screen shows every check in the state the script read", got == want, f"{got} vs {want}")
+            warn = sum(1 for i in truth["security"]["items"] if i["state"] == "warn")
+            check("security summary matches", ("warn" in page.get_attribute("#sec-summary", "class")) == (warn > 0))
+            links = sum(1 for i in truth["security"]["items"] if i["url"] and i["state"] != "info")
+            check("security screen has a settings button for each check", page.locator("#sec [data-url]").count() == links)
+            sbadge = page.inner_text('[data-badge="security"]') if page.locator('[data-badge="security"]:not([hidden])').count() else ""
+            check("sidebar badge shows the number of security warnings", sbadge == (str(warn) if warn else ""), sbadge)
+
+            # Privacy: the same apps and states as the script.
+            visit("privacy", "#priv-summary", "privacy")
+            for c in truth["privacy"]["caps"]:
+                names = page.eval_on_selector_all(f"#cap-{c['id']} .row b", "els => els.map((e) => e.textContent)")
+                check(f"privacy: {c['id']} lists the same apps", names == [a["name"] for a in c["apps"]],
+                      f"{names[:3]} vs {[a['name'] for a in c['apps']][:3]}")
+                check(f"privacy: {c['id']} access shown {'on' if c['on'] else 'off'}",
+                      page.locator(f"#cap-{c['id']} .chip.{'ok' if c['on'] else 'bad'}").count() == 1)
+            live = sum(1 for c in truth["privacy"]["caps"] for a in c["apps"] if a["inUse"])
+            check("privacy: apps in use now are highlighted", page.locator(".live-row").count() == live)
+
+            # Big files (from a sandbox): the same files, and moving them is refused in test mode.
+            visit("bigfiles", "#big-card", "big files")
+            bf = truth["bigfiles"]
+            shown = page.eval_on_selector_all("#big .row b[title]", "els => els.map((e) => e.textContent)")
+            check("big files screen lists the same big files", shown == [f["name"] for f in bf["big"]], shown)
+            shown = page.eval_on_selector_all("#inst .row b[title]", "els => els.map((e) => e.textContent)")
+            check("big files screen lists the same old installers", shown == [f["name"] for f in bf["installers"]], shown)
+            check("big files has a Show in folder button per file", page.locator("[data-reveal]").count() == len(bf["big"]) + len(bf["installers"]))
+            page.locator("#big .row input").first.check()
+            page.click("#bin")
+            check("moving to the Recycle Bin asks for a second click", "again" in page.inner_text("#bin").lower(), page.inner_text("#bin"))
+            page.click("#bin")
+            told = wait(lambda: "read-only" in page.inner_text("#toast"), 30)
+            check("test mode refuses to move files", bool(told) and (sandbox / "film.mkv").exists(), page.inner_text("#toast"))
+
             visit("laptop", "#hw .kv", "used laptop check")
             check("laptop check shows the real CPU", truth["laptop"]["cpu"]["name"] in page.inner_text("#hw"))
             check("laptop check shows the real BIOS version", truth["laptop"]["bios"]["version"] in page.inner_text("#hw"))
@@ -164,11 +218,24 @@ def main():
               window.chrome.webview.postMessage({ id, cmd: 'junk', args: { mode: 'clean', ids: ['user-temp'] } });
             })""")
             check("test mode refuses changes to the PC", refused.get("ok") is False and "read-only" in refused.get("error", ""), str(refused))
+            refused = page.evaluate("""(path) => new Promise((ok) => {
+              const id = 99002;
+              const on = (e) => { if (e.data && e.data.id === id) { window.chrome.webview.removeEventListener('message', on); ok(e.data); } };
+              window.chrome.webview.addEventListener('message', on);
+              window.chrome.webview.postMessage({ id, cmd: 'bigfiles', args: { mode: 'recycle', paths: [path] } });
+            })""", str(sandbox / "backup.zip"))
+            check("test mode refuses to recycle files", refused.get("ok") is False and "read-only" in refused.get("error", "")
+                  and (sandbox / "backup.zip").exists(), str(refused))
 
             # French and Arabic.
             for lang, word, direction in [("fr", "Nettoyage", "ltr"), ("ar", "التنظيف", "rtl")]:
                 page.select_option("#lang", lang)
                 page.wait_for_timeout(300)
+                for section, ready in [("security", "#sec .row"), ("privacy", "#priv-summary"), ("bigfiles", "#big-card")]:
+                    page.click(f'#nav a[href="#{section}"]')
+                    check(f"{section} screen in {lang}", bool(wait(lambda: page.locator(ready).count() > 0, 60)))
+                    page.wait_for_timeout(400)
+                    page.screenshot(path=str(SHOTS / f"{section}-{lang}.png"))
                 check(f"interface in {lang}", word in page.inner_text("#nav") and page.get_attribute("html", "dir") == direction)
                 page.click('#nav a[href="#home"]')
                 wait(lambda: page.inner_text("#score").strip().isdigit(), 120)
@@ -183,6 +250,7 @@ def main():
             proc.wait(10)
         except subprocess.TimeoutExpired:
             proc.kill()
+        shutil.rmtree(sandbox, ignore_errors=True)
     docs = Path(subprocess.run(["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('MyDocuments')"],
                                capture_output=True, text=True).stdout.strip())
     pdfs = sorted(docs.glob("Laptop check*.pdf"), key=lambda f: f.stat().st_mtime)

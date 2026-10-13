@@ -166,6 +166,124 @@ def test_tweaks():
     check("real backup file untouched by tests", real_before == real_after)
 
 
+def recycle_bin_items(folder):
+    """Items in the Recycle Bin that were deleted from `folder`, read through Explorer: [(name, size, path in the bin)]."""
+    import json
+    cmd = ("$bin = (New-Object -ComObject Shell.Application).NameSpace(10); "
+           "$out = @(foreach ($i in $bin.Items()) { if ($i.ExtendedProperty('System.Recycle.DeletedFrom') -eq $env:HIB_FOLDER) { "
+           "[ordered]@{ size = [long]$i.Size; path = $i.Path } } }); "
+           "ConvertTo-Json -InputObject $out -Compress")
+    r = subprocess.run([str(ps.POWERSHELL), "-NoProfile", "-Command", cmd], capture_output=True,
+                       env={**os.environ, "HIB_FOLDER": str(folder)})
+    items = json.loads(r.stdout.decode("utf-8", "replace") or "[]")
+    if isinstance(items, dict):
+        items = [items]
+    # Each $R file has a $I twin recording where it came from (version 2: size, time, then the UTF-16 path).
+    for i in items:
+        info = Path(i["path"]).with_name("$I" + Path(i["path"]).name[2:])
+        raw = info.read_bytes()
+        length = int.from_bytes(raw[24:28], "little")
+        i["original"] = raw[28:28 + 2 * length].decode("utf-16-le").split(chr(0))[0]
+        i["name"] = Path(i["original"]).name
+    return items
+
+
+def restore_from_bin(folder):
+    """Puts our own test files back from the Recycle Bin (Explorer's Restore), so the bin is left as it was."""
+    cmd = ("$bin = (New-Object -ComObject Shell.Application).NameSpace(10); "
+           "foreach ($i in @($bin.Items())) { if ($i.ExtendedProperty('System.Recycle.DeletedFrom') -eq $env:HIB_FOLDER) { $i.InvokeVerb('undelete') } }")
+    subprocess.run([str(ps.POWERSHELL), "-NoProfile", "-Command", cmd], capture_output=True, env={**os.environ, "HIB_FOLDER": str(folder)})
+
+
+def test_bigfiles():
+    MB = 2**20
+    base = Path(os.path.realpath(tempfile.mkdtemp(prefix="hibclean-big-")))  # long names, as the script reports them
+    sandbox = base / "downloads"
+    outside = base / "outside-precious"
+    try:
+        (sandbox / "sub").mkdir(parents=True)
+        outside.mkdir()
+        files = {"movie.mp4": 3 * MB, "sub/backup.vhdx": 5 * MB, "song.flac": 2 * MB, "note.txt": 10_000,
+                 "old-setup.exe": 50_000, "old-image.iso": 1 * MB + 5, "new-setup.msi": 40_000, "old-letter.docx": 30_000}
+        for name, size in files.items():
+            (sandbox / name).write_bytes(b"\0" * size)
+        for name in ["old-setup.exe", "old-image.iso", "old-letter.docx"]:
+            old(sandbox / name, 45)
+        precious = outside / "precious.bin"
+        precious.write_bytes(b"\1" * (4 * MB))
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(sandbox / "link-out"), str(outside)], capture_output=True, check=True)
+
+        env = {"HIB_TEST_BIGFILES_ROOT": str(sandbox), "HIB_TEST_BIGFILES_MIN": str(MB)}
+        scan = ps.run("bigfiles", {"mode": "scan"}, env=env)
+        big = [(Path(f["path"]).relative_to(sandbox).as_posix(), f["size"]) for f in scan["big"]]
+        check("big files: only files over the size, biggest first, sizes exact",
+              big == [("sub/backup.vhdx", 5 * MB), ("movie.mp4", 3 * MB), ("song.flac", 2 * MB), ("old-image.iso", MB + 5)], big)
+        check("big files: nothing listed through a junction", all("precious" not in f["path"] for f in scan["big"] + scan["installers"]))
+        inst = sorted(f["name"] for f in scan["installers"])
+        check("old installers: only .exe/.msi/.iso/.zip older than 30 days", inst == ["old-image.iso", "old-setup.exe"], inst)
+        check("big files: dates are the files' own", all(abs(datetime_from(f["modified"]) - (sandbox / Path(f["path"]).relative_to(sandbox)).stat().st_mtime) < 2
+                                                          for f in scan["big"]))
+
+        for bad in [os.environ["USERPROFILE"], "C:\\", str(Path(os.environ["TEMP"]).parent)]:
+            try:
+                ps.run("bigfiles", {"mode": "scan"}, env={"HIB_TEST_BIGFILES_ROOT": bad})
+                check(f"big files: refuses {bad} as a test folder", False)
+            except RuntimeError as e:
+                check(f"big files: refuses {bad} as a test folder", "inside the TEMP" in str(e), str(e))
+
+        # Recycle: only listed files, and only into the Recycle Bin.
+        want = [str(sandbox / "movie.mp4"), str(sandbox / "old-setup.exe"), str(sandbox / "link-out" / "precious.bin"),
+                str(sandbox / "note.txt"), str(outside / "precious.bin"), "C:\\Windows\\notepad.exe"]
+        res = ps.run("bigfiles", {"mode": "recycle", "paths": want}, env=env)
+        by = {r["path"]: r for r in res["results"]}
+        check("recycle: listed files moved", by[want[0]]["ok"] and by[want[1]]["ok"], res)
+        check("recycle: files not in the scan refused", all(not by[p]["ok"] and by[p]["error"] == "not-listed" for p in want[2:]), res)
+        check("recycle: reports what it freed", res["freed"] == 3 * MB + 50_000, res["freed"])
+        check("recycle: moved files are gone from the folder", not (sandbox / "movie.mp4").exists() and not (sandbox / "old-setup.exe").exists())
+        check("recycle: everything else untouched", precious.exists() and (sandbox / "note.txt").exists() and (sandbox / "song.flac").exists()
+              and Path("C:\\Windows\\notepad.exe").exists())
+        binned = {i["name"]: i for i in recycle_bin_items(sandbox)}
+        check("recycle: files are in the Recycle Bin, not deleted for good",
+              binned.get("movie.mp4", {}).get("size") == 3 * MB and binned.get("old-setup.exe", {}).get("size") == 50_000
+              and binned["movie.mp4"]["original"].lower() == str(sandbox / "movie.mp4").lower(), binned)
+        restore_from_bin(sandbox)
+        time.sleep(1)
+        check("recycle: restoring from the Recycle Bin brings them back", (sandbox / "movie.mp4").exists() and (sandbox / "old-setup.exe").exists())
+        try:
+            ps.run("bigfiles", {"mode": "recycle", "paths": []}, env=env)
+            check("recycle: refuses an empty request", False)
+        except RuntimeError:
+            check("recycle: refuses an empty request", True)
+    finally:
+        restore_from_bin(sandbox)
+        subprocess.run(["cmd", "/c", "rmdir", str(sandbox / "link-out")], capture_output=True)
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def datetime_from(iso):
+    from datetime import datetime
+    return datetime.fromisoformat(iso[:26].rstrip("Z") + "+00:00").timestamp()
+
+
+def test_new_reports():
+    """The read-only reports return what the interface expects."""
+    sec = ps.run("security", {"mode": "report"})
+    ids = [i["id"] for i in sec["items"]]
+    check("security report has every check", ids == ["antivirus", "firewall", "updates", "encryption", "secureboot", "tpm", "smartscreen", "uac"], ids)
+    check("security states are known words", all(i["state"] in ("ok", "warn", "info", "unknown") for i in sec["items"]))
+    check("security settings links are allowed by the app",
+          all(i["url"] is None or i["url"].startswith(("ms-settings:", "windowsdefender://")) for i in sec["items"]))
+    priv = ps.run("privacy", {"mode": "report"})
+    check("privacy report covers camera, microphone and location", [c["id"] for c in priv["caps"]] == ["webcam", "microphone", "location"])
+    check("privacy apps have names", all(a["name"] for c in priv["caps"] for a in c["apps"]))
+    for name in ["security", "privacy", "bigfiles"]:
+        try:
+            ps.run(name, {"mode": "bogus"})
+            check(f"{name}: unknown mode refused", False)
+        except RuntimeError as e:
+            check(f"{name}: unknown mode refused", "Unknown mode" in str(e), str(e))
+
+
 def test_outfile():
     """Elevated runs can't pipe stdout, so scripts write results (and errors) to -OutFile."""
     import base64, json
