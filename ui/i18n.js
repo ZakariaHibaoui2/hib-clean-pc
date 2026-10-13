@@ -3,6 +3,7 @@
 const I18N = {
   en: {
     language: 'Language',
+    skipToContent: 'Skip to content',
     nav_home: 'Health', nav_clean: 'Clean up', nav_startup: 'Startup apps', nav_windows: 'Windows clean-up',
     nav_battery: 'Battery', nav_updates: 'App updates', nav_adblock: 'Ad blocking', nav_laptop: 'Laptop check',
     unitB: 'B', unitKB: 'KB', unitMB: 'MB', unitGB: 'GB', unitTB: 'TB',
@@ -125,6 +126,7 @@ const I18N = {
 
   fr: {
     language: 'Langue',
+    skipToContent: 'Aller au contenu',
     nav_home: 'Santé', nav_clean: 'Nettoyage', nav_startup: 'Démarrage', nav_windows: 'Nettoyer Windows',
     nav_battery: 'Batterie', nav_updates: 'Mises à jour', nav_adblock: 'Blocage des pubs', nav_laptop: 'Vérifier un PC',
     unitB: 'o', unitKB: 'Ko', unitMB: 'Mo', unitGB: 'Go', unitTB: 'To',
@@ -247,6 +249,7 @@ const I18N = {
 
   ar: {
     language: 'اللغة',
+    skipToContent: 'انتقل إلى المحتوى',
     nav_home: 'صحة الجهاز', nav_clean: 'التنظيف', nav_startup: 'برامج بدء التشغيل', nav_windows: 'تنظيف ويندوز',
     nav_battery: 'البطارية', nav_updates: 'تحديث البرامج', nav_adblock: 'حظر الإعلانات', nav_laptop: 'فحص الحاسوب',
     unitB: 'بايت', unitKB: 'ك.ب', unitMB: 'م.ب', unitGB: 'ج.ب', unitTB: 'ت.ب',

@@ -157,7 +157,7 @@ const SECTIONS = ['home', 'clean', 'startup', 'windows', 'battery', 'updates', '
 function renderNav(active) {
   $('#nav').innerHTML = SECTIONS.map((s) => `
     <a href="#${s}" class="${s === active ? 'on' : ''}" ${s === active ? 'aria-current="page"' : ''}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[s]}</svg><span class="label">${esc(t('nav_' + s))}</span><span class="badge" data-badge="${s}" hidden></span>
+      <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[s]}</svg></span><span class="label">${esc(t('nav_' + s))}</span><span class="badge" data-badge="${s}" hidden></span>
     </a>`).join('');
   updateBadges();
 }
@@ -283,6 +283,45 @@ function orb2d(el, value, kind, onValue) {
   requestAnimationFrame(draw);
 }
 
+// ---------- Depth ----------
+// Hero surfaces ([data-tilt]) lean a few degrees toward the pointer and catch a
+// highlight where it is, like glass under water. Off for reduced motion and touch.
+function depth(root) {
+  if (reduced || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  let el = null; let box = null; let raf = 0; let px = 0; let py = 0;
+  const reset = (x) => {
+    x.classList.remove('tilting');
+    for (const v of ['--rx', '--ry', '--mx', '--my']) x.style.removeProperty(v);
+  };
+  const apply = () => {
+    raf = 0;
+    if (!el || !el.isConnected) return;
+    const x = Math.min(1, Math.max(0, (px - box.left) / box.width));
+    const y = Math.min(1, Math.max(0, (py - box.top) / box.height));
+    const max = Number(el.dataset.tilt) || 3;
+    el.style.setProperty('--rx', `${((0.5 - y) * max).toFixed(2)}deg`);
+    el.style.setProperty('--ry', `${((x - 0.5) * max).toFixed(2)}deg`);
+    el.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`);
+    el.style.setProperty('--my', `${(y * 100).toFixed(1)}%`);
+  };
+  const leave = () => { if (el) reset(el); el = null; };
+  root.addEventListener('pointermove', (e) => {
+    const hit = e.target.closest('[data-tilt]');
+    if (hit !== el) {
+      leave();
+      el = hit;
+      if (!el) return;
+      box = el.getBoundingClientRect(); // read once: the tilt itself would move it
+      el.classList.add('tilting');
+    }
+    if (!el) return;
+    px = e.clientX; py = e.clientY;
+    if (!raf) raf = requestAnimationFrame(apply);
+  });
+  root.addEventListener('pointerleave', leave);
+  root.addEventListener('scroll', leave, { passive: true });
+}
+
 // ---------- Views ----------
 const VIEWS = {};
 
@@ -296,14 +335,14 @@ VIEWS.home = (view) => {
         <p class="verdict" id="verdict">${esc(t('scanning'))}</p>
       </div>
       <div class="side-stack">
-        <div class="quick" id="quick" hidden></div>
+        <div class="quick" id="quick" data-tilt="4" hidden></div>
         <div class="fixes">
           <h2>${esc(t('topFixes'))}</h2>
           <ol id="fixes" class="fix-list"><li class="ghost-row">${skeleton(t('scanning'), 3)}</li></ol>
         </div>
       </div>
     </section>
-    <section class="tiles" id="tiles"></section>`;
+    <section class="tiles" id="tiles" data-tilt="1.6"></section>`;
   $('#gauge .score').id = 'score';
   $('#rescan').onclick = () => { for (const k of Object.keys(cache)) delete cache[k]; route(); };
 
@@ -409,7 +448,7 @@ VIEWS.clean = (view) => {
         if (r) { freed += r.freed; files += r.files; skipped += r.skipped; }
       }
       delete cache.junk; delete cache.system;
-      $('#result').innerHTML = `<div class="result">
+      $('#result').innerHTML = `<div class="result" data-tilt="3">
         <span class="big" id="freed">0</span>
         <p>${esc(t('freedText', { files: num(files) }))}${skipped ? ` ${esc(t('skippedText', { n: num(skipped) }))}` : ''}</p>
         ${note ? `<p class="warn">${esc(note)}</p>` : ''}</div>`;
@@ -661,7 +700,7 @@ VIEWS.updates = (view) => {
   $('#rescan').onclick = () => { delete cache.updates; route(); };
   load('updates').then((u) => {
     if (!u.available) { $('#body').innerHTML = `<p class="empty">${esc(t('noWinget'))}</p>`; return; }
-    if (!u.apps.length) { $('#body').innerHTML = `<div class="result"><span class="big">✓</span><p>${esc(t('upToDate'))}</p></div>`; return; }
+    if (!u.apps.length) { $('#body').innerHTML = `<div class="result" data-tilt="3"><span class="big">✓</span><p>${esc(t('upToDate'))}</p></div>`; return; }
     $('#body').innerHTML = `
       <div class="bar-actions top"><p>${esc(t('updCount', { n: num(u.apps.length) }))}</p><button class="btn primary" id="all">${esc(t('updateAll'))}</button></div>
       <ul class="rows" id="list">${u.apps.map((a, i) => `
@@ -709,7 +748,7 @@ VIEWS.adblock = (view) => {
       <div class="status-line ${s.blocking ? 'on' : ''}"><span class="dot" aria-hidden="true"></span>
         <b>${esc(t(s.blocking ? 'dnsProtected' : 'dnsNotProtected'))}</b><span>${esc(t(s.blocking ? 'dnsProtectedSub' : 'dnsNotProtectedSub'))}</span></div>
       <fieldset class="choices"><legend class="sr">${esc(t('dnsChoose'))}</legend>${PROVIDERS.map((p) => `
-        <label class="choice ${p === current ? 'current' : ''}">
+        <label data-tilt="3" class="choice ${p === current ? 'current' : ''}">
           <input type="radio" name="dns" value="${p}" ${p === (current && current !== 'auto' && PROVIDERS.includes(current) ? current : 'adguard') ? 'checked' : ''}>
           <span class="choice-body"><b>${esc(t('dns_' + p))}${p === 'adguard' ? ` <span class="chip">${esc(t('recommended'))}</span>` : ''}${p === current ? ` <span class="chip soft">${esc(t('current'))}</span>` : ''}</b>
           <small>${esc(t('dns_' + p + '_d'))}</small></span>
@@ -976,6 +1015,8 @@ async function start() {
   setLang(saved || info.lang);
   $('#version').textContent = info.version ? `v${info.version}` : '';
   $('#lang').onchange = (e) => { setLang(e.target.value); route(); };
+  $('#skip').onclick = () => $('#view').focus();
+  depth($('#view'));
   addEventListener('hashchange', route);
   addEventListener('beforeunload', stopMedia);
   route();

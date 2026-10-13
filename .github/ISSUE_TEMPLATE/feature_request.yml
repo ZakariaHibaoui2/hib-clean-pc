@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an improvement or a new check for Hib Clean PC.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hib Clean PC aims to stay small, safe and easy to understand: every change it makes
+        to Windows can be undone, and it never deletes outside known cache folders.
+        Ideas that fit that are the most likely to be added.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like the app to do?
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Does it change Windows?
+      description: If so, how could the change be undone? Does it need administrator rights?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything else?
+      description: Other tools that do this, links, or screenshots.

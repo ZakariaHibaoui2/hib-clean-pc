@@ -1,9 +1,37 @@
+# Text files are stored with LF in the repository (as they are today).
 * text=auto eol=lf
-*.png binary
-*.gif binary
+
+# PowerShell is checked out with CRLF, the Windows default. The repository
+# copy stays LF, so this needs no renormalization. PowerShell 5.1 reads both.
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Source and web files stay LF everywhere.
+*.cs   text diff=csharp
+*.py   text diff=python
+*.js   text
+*.mjs  text
+*.css  text diff=css
+*.html text diff=html
+*.svg  text
+*.md   text diff=markdown
+*.yml  text
+*.json text
+
+# Binary files: never touch line endings, never diff.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
 *.woff2 binary
-*.exe binary
-*.zip binary
-*.ico binary
-*.pdf binary
-*.dll binary
+*.ttf   binary
+*.exe   binary
+*.dll   binary
+*.zip   binary
+*.pdf   binary

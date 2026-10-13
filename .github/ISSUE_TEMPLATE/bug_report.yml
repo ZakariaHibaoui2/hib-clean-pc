@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in Hib Clean PC doesn't work or shows a wrong number.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please don't paste anything private,
+        such as your laptop's serial number, user name or file paths with your name in them.
+        Security problems go to a [private advisory](https://github.com/ZakariaHibaoui2/hib-clean-pc/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown at the bottom of the sidebar, or in Settings → Apps.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - One-command install (PowerShell)
+        - Downloaded HibCleanPC.exe
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: screen
+    attributes:
+      label: Which screen?
+      options:
+        - Home (health score, Quick clean)
+        - Clean up
+        - Startup apps
+        - Windows clean-up
+        - Battery
+        - App updates
+        - Ad blocking
+        - Used laptop check
+        - Install or uninstall
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: App language
+      options:
+        - English
+        - Français
+        - العربية
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Battery
+        2. Click ...
+        3. See ...
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the existing issues and this isn't one of them.
+          required: true
+        - label: I removed anything private from the text and screenshots.
+          required: true

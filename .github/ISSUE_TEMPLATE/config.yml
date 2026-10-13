@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/ZakariaHibaoui2/hib-clean-pc/security/advisories/new
+    about: Please report security problems privately, not in a public issue.
+  - name: Install guide and screenshots
+    url: https://zakariahibaoui2.github.io/hib-clean-pc/
+    about: The website explains how to install Hib Clean PC and what each screen does.
