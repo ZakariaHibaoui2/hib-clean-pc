@@ -106,6 +106,7 @@ function start() {
   const shift = new THREE.Vector2();
   const want = new THREE.Vector2();
   addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch') return;
     want.set(e.clientX / innerWidth - 0.5, 0.5 - e.clientY / innerHeight);
   }, { passive: true });
   let scroll = 0;

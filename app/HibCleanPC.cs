@@ -42,7 +42,10 @@ namespace HibCleanPC
         public static readonly string DataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hib Clean PC");
 
-        [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+        // The manifest (tools/build.py) makes the app per-monitor DPI aware (V2), so text and
+        // the WebView stay sharp at any scaling and when the window moves between screens.
+        // This call only matters if the manifest was lost; it fails harmlessly otherwise.
+        [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
         [STAThread]
         static void Main(string[] args)
@@ -58,7 +61,7 @@ namespace HibCleanPC
                     return Assembly.Load(bytes);
                 }
             };
-            try { SetProcessDPIAware(); } catch { }
+            try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { } // PER_MONITOR_AWARE_V2, Windows 10 1703+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Run(args);
@@ -82,6 +85,9 @@ namespace HibCleanPC
 
         static string root;
         public static string Res(string sub) { return Path.Combine(root, sub); }
+        // x86, x64 or arm64: the WebView2 loader this process can load (see Arch.cs).
+        public static readonly string Arch = HibCleanPC.Arch.Current();
+        public static string LoaderDir { get { return Res(Path.Combine("runtime", Arch)); } }
 
         // Extracts the interface, the scripts and the WebView2 loader next to each other,
         // into a folder of their own per build. A copy of the app that is still running keeps
@@ -119,10 +125,18 @@ namespace HibCleanPC
                         }
                     }
                 }
-                string runtime = Path.Combine(temp, "runtime");
-                Directory.CreateDirectory(runtime);
-                using (var s = asm.GetManifestResourceStream("WebView2Loader.dll"))
-                using (var f = File.Create(Path.Combine(runtime, "WebView2Loader.dll"))) s.CopyTo(f);
+                // Every architecture's loader is inside the exe; each gets its own folder, so the
+                // same unpacked build works whichever way Windows runs the app (x64, ARM64, x86).
+                foreach (string arch in new[] { "x86", "x64", "arm64" })
+                {
+                    using (var s = asm.GetManifestResourceStream(HibCleanPC.Arch.Resource(arch)))
+                    {
+                        if (s == null) continue;
+                        string runtime = Path.Combine(temp, "runtime", arch);
+                        Directory.CreateDirectory(runtime);
+                        using (var f = File.Create(Path.Combine(runtime, "WebView2Loader.dll"))) s.CopyTo(f);
+                    }
+                }
                 File.WriteAllText(Path.Combine(temp, ".ready"), build);
                 if (Directory.Exists(root)) TryDelete(root);   // an unfinished older attempt
                 if (!Directory.Exists(root)) Directory.Move(temp, root);
@@ -176,10 +190,7 @@ namespace HibCleanPC
         {
             Text = "Hib Clean PC";
             BackColor = Color.FromArgb(14, 36, 39);
-            MinimumSize = new Size(980, 660);
-            StartPosition = FormStartPosition.CenterScreen;
-            var area = Screen.PrimaryScreen.WorkingArea;
-            Size = new Size(Math.Min(1240, area.Width - 80), Math.Min(820, area.Height - 60));
+            PlaceWindow();
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             // ?page=... lets tests open a specific screen.
             string page = args.FirstOrDefault(a => a.StartsWith("--page="));
@@ -194,7 +205,110 @@ namespace HibCleanPC
         {
             base.OnHandleCreated(e);
             int on = 1;
-            try { DwmSetWindowAttribute(Handle, 20, ref on, 4); } catch { } // dark title bar
+            // Dark title bar: attribute 20 on Windows 10 20H1 and later, 19 before that.
+            try { if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
+        }
+
+        // ---------- Window size on any screen ----------
+        // Sizes are in logical pixels (100% scaling), scaled for the screen's DPI, because a
+        // per-monitor aware window is measured in physical pixels.
+        static readonly Size Preferred = new Size(1240, 820);
+        static readonly Size Smallest = new Size(800, 560);
+        const int WM_DPICHANGED = 0x02E0;
+
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(Point pt, uint flags);
+        [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint dpiX, out uint dpiY);
+        [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+
+        static int DpiAt(Point p)
+        {
+            try
+            {
+                uint x, y;
+                if (GetDpiForMonitor(MonitorFromPoint(p, 2), 0, out x, out y) == 0 && x > 0) return (int)x;
+            }
+            catch { }
+            using (var g = Graphics.FromHwnd(IntPtr.Zero)) return (int)g.DpiX;
+        }
+
+        static Size Scale(Size s, int dpi) { return new Size(s.Width * dpi / 96, s.Height * dpi / 96); }
+
+        // Never larger than the screen's work area, even at 1366x768 with 150% scaling.
+        static Size Fit(Size s, Rectangle area) { return new Size(Math.Min(s.Width, area.Width), Math.Min(s.Height, area.Height)); }
+
+        static string WindowFile { get { return Path.Combine(Program.DataDir, "window.txt"); } }
+        static bool ReadOnly { get { return Environment.GetEnvironmentVariable("HIB_READONLY") == "1"; } }
+
+        // Opens where it was last closed if that is still on a screen; otherwise centred on the
+        // screen with the mouse, at a comfortable size that fits its work area.
+        void PlaceWindow()
+        {
+            StartPosition = FormStartPosition.Manual;
+            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int dpi = DpiAt(new Point(area.Left + area.Width / 2, area.Top + area.Height / 2));
+            Size size = Fit(Scale(Preferred, dpi), new Rectangle(0, 0, area.Width * 94 / 100, area.Height * 94 / 100));
+            Point at = new Point(area.Left + (area.Width - size.Width) / 2, area.Top + (area.Height - size.Height) / 2);
+            bool maximized = false;
+            try
+            {
+                if (!ReadOnly && File.Exists(WindowFile))
+                {
+                    // "x y width height maximized": position in pixels, size in logical pixels.
+                    int[] v = File.ReadAllText(WindowFile).Trim().Split(' ').Select(int.Parse).ToArray();
+                    Point p = new Point(v[0], v[1]);
+                    Screen saved = Screen.AllScreens.FirstOrDefault(sc => sc.WorkingArea.Contains(new Point(p.X + 60, p.Y + 20)));
+                    if (saved != null && v.Length >= 4)
+                    {
+                        area = saved.WorkingArea;
+                        dpi = DpiAt(p);
+                        size = Fit(Scale(new Size(Math.Max(v[2], Smallest.Width), Math.Max(v[3], Smallest.Height)), dpi), area);
+                        at = new Point(Math.Max(area.Left, Math.Min(p.X, area.Right - size.Width)),
+                                       Math.Max(area.Top, Math.Min(p.Y, area.Bottom - size.Height)));
+                        maximized = v.Length > 4 && v[4] == 1;
+                    }
+                }
+            }
+            catch { }
+            MinimumSize = Fit(Scale(Smallest, dpi), area);
+            Bounds = new Rectangle(at, size);
+            if (maximized) WindowState = FormWindowState.Maximized;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            if (ReadOnly || full) return;   // tests never change the saved window
+            try
+            {
+                Rectangle b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                int dpi = 96;
+                try { dpi = (int)GetDpiForWindow(Handle); } catch { }
+                if (dpi <= 0) dpi = 96;
+                Directory.CreateDirectory(Program.DataDir);
+                File.WriteAllText(WindowFile, string.Join(" ", new[] { b.X, b.Y, b.Width * 96 / dpi, b.Height * 96 / dpi,
+                    WindowState == FormWindowState.Maximized ? 1 : 0 }));
+            }
+            catch { }
+        }
+
+        // Moved to a screen with other scaling: take the rectangle Windows suggests so the window
+        // keeps its size on screen, and scale the minimum size to match.
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_DPICHANGED)
+            {
+                int dpi = (int)((long)m.WParam & 0xFFFF);
+                var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+                Rectangle area = Screen.FromRectangle(Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom)).WorkingArea;
+                MinimumSize = new Size(1, 1);
+                SetWindowPos(Handle, IntPtr.Zero, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, 0x0004 | 0x0010); // NOZORDER | NOACTIVATE
+                MinimumSize = Fit(Scale(Smallest, dpi), area);
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         // Tests and the demo recorder can run beside an open copy of the app with their own browser folder.
@@ -209,14 +323,17 @@ namespace HibCleanPC
         {
             try
             {
-                CoreWebView2Environment.SetLoaderDllFolderPath(Program.Res("runtime"));
+                CoreWebView2Environment.SetLoaderDllFolderPath(Program.LoaderDir);
                 var env = await CoreWebView2Environment.CreateAsync(null, WebViewDir());
                 await web.EnsureCoreWebView2Async(env);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Hib Clean PC needs Microsoft Edge WebView2, which comes with Windows 11.\n\n" + ex.Message,
-                    "Hib Clean PC", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // Windows 11 always has WebView2; a few Windows 10 PCs don't yet.
+                var answer = MessageBox.Show(this, "Hib Clean PC needs Microsoft Edge WebView2. It comes with Windows 11; on Windows 10 "
+                    + "it is a free download from Microsoft.\n\nOpen the download page now?\n\n(" + ex.Message + ")",
+                    "Hib Clean PC", MessageBoxButtons.YesNo, MessageBoxIcon.Error);
+                if (answer == DialogResult.Yes) OpenExternal("https://developer.microsoft.com/microsoft-edge/webview2/");
                 Close();
                 return;
             }
@@ -293,6 +410,9 @@ namespace HibCleanPC
                         { "version", Program.Version },
                         { "lang", System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName },
                         { "admin", IsAdmin() },
+                        // Windows 11 is build 22000 and later; a few features only exist there.
+                        { "build", Environment.OSVersion.Version.Build },
+                        { "arch", Program.Arch },
                     });
                 case "host.fullscreen":
                     SetFullscreen(a.ContainsKey("on") && a["on"] is bool && (bool)a["on"]);

@@ -55,18 +55,24 @@ def pack(folder, name):
 WEBVIEW2_VERSION = "1.0.4258.31"
 
 
+LOADER_ARCHS = ("x86", "x64", "arm64")
+
+
 def vendor():
-    """Downloads the WebView2 SDK from NuGet once and keeps the three files it needs."""
-    need = {"lib/net462/Microsoft.Web.WebView2.Core.dll", "lib/net462/Microsoft.Web.WebView2.WinForms.dll",
-            "runtimes/win-x64/native/WebView2Loader.dll"}
-    if all((VENDOR / Path(n).name).exists() for n in need):
+    """Downloads the WebView2 SDK from NuGet once and keeps the files it needs: the two
+    managed assemblies and the native loader for every Windows architecture."""
+    need = {"lib/net462/Microsoft.Web.WebView2.Core.dll": "Microsoft.Web.WebView2.Core.dll",
+            "lib/net462/Microsoft.Web.WebView2.WinForms.dll": "Microsoft.Web.WebView2.WinForms.dll"}
+    for arch in LOADER_ARCHS:
+        need[f"runtimes/win-{arch}/native/WebView2Loader.dll"] = f"WebView2Loader.{arch}.dll"
+    if all((VENDOR / name).exists() for name in need.values()):
         return
     VENDOR.mkdir(exist_ok=True)
     url = f"https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/{WEBVIEW2_VERSION}"
     data = urllib.request.urlopen(url, timeout=120).read()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        for n in need:
-            (VENDOR / Path(n).name).write_bytes(z.read(n))
+        for src, name in need.items():
+            (VENDOR / name).write_bytes(z.read(src))
 
 
 def icon():
@@ -96,21 +102,24 @@ def main():
     ui = pack(ROOT / "ui", "ui.zip")
     scripts = pack(ROOT / "scripts", "scripts.zip")
     # A content hash, so the app re-extracts its files whenever they change.
-    digest = hashlib.sha256(ui.read_bytes() + scripts.read_bytes() + (ROOT / "app" / "HibCleanPC.cs").read_bytes()).hexdigest()[:16]
+    sources = [ROOT / "app" / "HibCleanPC.cs", ROOT / "app" / "Arch.cs"]
+    digest = hashlib.sha256(ui.read_bytes() + scripts.read_bytes() + b"".join(f.read_bytes() for f in sources)).hexdigest()[:16]
     (BUILD / "build.txt").write_text(digest, encoding="utf-8")
     (BUILD / "app.manifest").write_text(MANIFEST, encoding="utf-8")
     exe = DIST / "HibCleanPC.exe"
     subprocess.run([
-        str(CSC), "/nologo", "/target:winexe", "/platform:x64", "/optimize+", f"/out:{exe}",
+        # AnyCPU (not 32-bit preferred): 64-bit on x64, and native ARM64 on Windows 11 ARM
+        # with .NET Framework 4.8.1. The host picks the matching WebView2 loader at start.
+        str(CSC), "/nologo", "/target:winexe", "/platform:anycpu", "/optimize+", f"/out:{exe}",
         f"/win32icon:{ico}", f"/win32manifest:{BUILD / 'app.manifest'}",
         "/r:System.Web.Extensions.dll", "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll",
         "/r:System.IO.Compression.dll", "/r:System.IO.Compression.FileSystem.dll",
         f"/r:{VENDOR / 'Microsoft.Web.WebView2.Core.dll'}", f"/r:{VENDOR / 'Microsoft.Web.WebView2.WinForms.dll'}",
         f"/resource:{VENDOR / 'Microsoft.Web.WebView2.Core.dll'},Microsoft.Web.WebView2.Core.dll",
         f"/resource:{VENDOR / 'Microsoft.Web.WebView2.WinForms.dll'},Microsoft.Web.WebView2.WinForms.dll",
-        f"/resource:{VENDOR / 'WebView2Loader.dll'},WebView2Loader.dll",
+        *[f"/resource:{VENDOR / f'WebView2Loader.{a}.dll'},WebView2Loader.{a}.dll" for a in LOADER_ARCHS],
         f"/resource:{ui},ui.zip", f"/resource:{scripts},scripts.zip", f"/resource:{BUILD / 'build.txt'},build.txt",
-        str(ROOT / "app" / "HibCleanPC.cs"),
+        *[str(f) for f in sources],
     ], check=True)
     print(f"{exe} (version {version}, {exe.stat().st_size // 1024} KB, build {digest})")
 

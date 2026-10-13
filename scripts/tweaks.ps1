@@ -1,4 +1,4 @@
-# Windows clean-up: switches off Windows 11's ads, suggestions and pushed features.
+# Windows clean-up: switches off Windows' ads, suggestions and pushed features.
 #   { mode: 'list' }                 -> [{ id, applied, admin, restart, undo }]
 #   { mode: 'apply', ids: [...] }    -> [{ id, ok, error? }]
 #   { mode: 'undo',  ids: [...] }    -> [{ id, ok, error? }]
@@ -53,6 +53,12 @@ $tweaks = @(
     @{ id = 'telemetry'; restart = $null; values = @(
         (V 'HKLM' 'SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0)) }
 )
+
+# Start menu recommendations only exist on Windows 11 (build 22000+). On Windows 10 the
+# item is left out, so it neither shows nor counts against the health score.
+$build = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').CurrentBuildNumber
+if ($env:HIB_TEST_WIN_BUILD) { $build = [int]$env:HIB_TEST_WIN_BUILD }
+if ($build -lt 22000) { $tweaks = @($tweaks | Where-Object { $_.id -ne 'start-ads' }) }
 
 # Tests point HKCU changes at a throwaway key so this PC's settings stay as they are.
 $testRoot = $env:HIB_TEST_REG_ROOT

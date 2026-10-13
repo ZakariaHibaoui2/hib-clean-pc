@@ -51,6 +51,7 @@ const I18N = {
     startupEmpty: 'No apps start with Windows.', startupOn: '{name} will start with Windows', startupOff: '{name} won\'t start with Windows anymore',
 
     winTitle: 'Windows clean-up', winLead: 'Remove the ads, suggestions and extras Windows 11 adds. Every change can be undone.',
+    winLead10: 'Remove the ads, suggestions and extras Windows adds. Every change can be undone.', win11Only: 'Windows 11 only',
     winAds: 'Ads and suggestions', removeAll: 'Remove all', restoreFirst: 'Create a restore point first (recommended)',
     winApps: 'Pre-installed apps', winAppsLead: 'Removed only for you. Each one can be reinstalled from the Microsoft Store.',
     removeSelected: 'Remove selected', removeN: 'Remove {n} apps', confirmRemove: 'Click again to remove {n} apps', removing: 'Removing…',
@@ -232,6 +233,7 @@ const I18N = {
     startupEmpty: 'Aucune application ne démarre avec Windows.', startupOn: '{name} démarrera avec Windows', startupOff: '{name} ne démarrera plus avec Windows',
 
     winTitle: 'Nettoyer Windows', winLead: 'Retirez les pubs, suggestions et extras ajoutés par Windows 11. Tout peut être annulé.',
+    winLead10: 'Retirez les pubs, suggestions et extras ajoutés par Windows. Tout peut être annulé.', win11Only: 'Windows 11 uniquement',
     winAds: 'Pubs et suggestions', removeAll: 'Tout retirer', restoreFirst: "Créer d'abord un point de restauration (recommandé)",
     winApps: 'Applications préinstallées', winAppsLead: 'Retirées pour vous seulement. Chacune peut être réinstallée depuis le Microsoft Store.',
     removeSelected: 'Retirer la sélection', removeN: 'Retirer {n} applications', confirmRemove: 'Cliquez encore pour retirer {n} applications', removing: 'Suppression…',
@@ -413,6 +415,7 @@ const I18N = {
     startupEmpty: 'لا توجد برامج تبدأ مع ويندوز.', startupOn: 'سيبدأ {name} مع ويندوز', startupOff: 'لن يبدأ {name} مع ويندوز بعد الآن',
 
     winTitle: 'تنظيف ويندوز', winLead: 'أزل الإعلانات والاقتراحات والإضافات التي يضيفها ويندوز 11. يمكن التراجع عن كل تغيير.',
+    winLead10: 'أزل الإعلانات والاقتراحات والإضافات التي يضيفها ويندوز. يمكن التراجع عن كل تغيير.', win11Only: 'ويندوز 11 فقط',
     winAds: 'الإعلانات والاقتراحات', removeAll: 'إزالة الكل', restoreFirst: 'أنشئ نقطة استعادة أولًا (مُستحسن)',
     winApps: 'البرامج المثبتة مسبقًا', winAppsLead: 'تُزال لك فقط. يمكن إعادة تثبيت كل برنامج من متجر مايكروسوفت.',
     removeSelected: 'إزالة المحدد', removeN: 'إزالة {n} برامج', confirmRemove: 'انقر مجددًا لإزالة {n} برامج', removing: 'جارٍ الإزالة…',

@@ -258,6 +258,7 @@ function mountOrb(el, value, kind, onValue) {
   const want = new THREE.Vector2();
   const slosh = new THREE.Vector2();
   const onMove = (e) => {
+    if (e.pointerType === 'touch') return;   // a finger scrolling the page shouldn't slosh the orb
     const r = el.getBoundingClientRect();
     want.set(
       Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width * 1.6))),

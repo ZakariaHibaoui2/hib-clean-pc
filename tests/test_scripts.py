@@ -137,6 +137,8 @@ def test_tweaks():
         reg("add", adv, "/v", "Start_IrisRecommendations", "/t", "REG_DWORD", "/d", "1", "/f")
         listed = {t["id"]: t for t in ps.run("tweaks", {"mode": "list"}, env=env)}
         check("tweaks list has every tweak", len(listed) == 11 and not listed["start-ads"]["applied"], list(listed))
+        win10 = {t["id"] for t in ps.run("tweaks", {"mode": "list"}, env={**env, "HIB_TEST_WIN_BUILD": "19045"})}
+        check("Windows 10: the Windows 11-only Start menu item is left out", "start-ads" not in win10 and len(win10) == 10, sorted(win10))
         res = ps.run("tweaks", {"mode": "apply", "ids": ["start-ads", "telemetry"]}, env=env)
         check("apply succeeds", all(r["ok"] for r in res), res)
         q = reg("query", adv).stdout

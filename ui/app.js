@@ -29,6 +29,12 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Narrow windows and portrait tablets show the sidebar as a rail of icons (app.css).
+const RAIL = matchMedia('(max-width: 959px)');
+// What the host told us: version, language, Windows build, process architecture.
+let host = { version: '', build: 0 };
+// Windows 11 is build 22000 and later; unknown (0) is treated as Windows 11.
+const isWin10 = () => host.build > 0 && host.build < 22000;
 
 let lang = 'en';
 const t = (key, vars) => {
@@ -95,9 +101,15 @@ const loaders = {
   bigfiles: () => bridge('bigfiles', { mode: 'scan' }),
   privacy: () => bridge('privacy', { mode: 'report' }),
 };
+// Results only reach the screen that asked for them: after a move to another section
+// (a quick tap through the sidebar on a tablet, say), a late answer is dropped instead of
+// being drawn into the new screen. The scan itself stays cached for later.
+let routeId = 0;
+const never = new Promise(() => {});
 function load(key, force = false) {
   if (force || !cache[key]) cache[key] = loaders[key]();
-  return cache[key];
+  const at = routeId;
+  return cache[key].then((v) => (at === routeId ? v : never), (err) => (at === routeId ? Promise.reject(err) : never));
 }
 
 // Security checks that need a look (state 'warn'); unread ones never count.
@@ -174,8 +186,9 @@ const ICONS = {
 const SECTIONS = ['home', 'clean', 'bigfiles', 'startup', 'windows', 'security', 'privacy', 'battery', 'updates', 'adblock', 'laptop'];
 
 function renderNav(active) {
+  // In the icon rail the names are only read out, so each icon also gets a tooltip.
   $('#nav').innerHTML = SECTIONS.map((s) => `
-    <a href="#${s}" class="${s === active ? 'on' : ''}" ${s === active ? 'aria-current="page"' : ''}>
+    <a href="#${s}" class="${s === active ? 'on' : ''}" ${s === active ? 'aria-current="page"' : ''} ${RAIL.matches ? `title="${esc(t('nav_' + s))}"` : ''}>
       <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[s]}</svg></span><span class="label">${esc(t('nav_' + s))}</span><span class="badge" data-badge="${s}" hidden></span>
     </a>`).join('');
   updateBadges();
@@ -202,6 +215,7 @@ async function updateBadges() {
 }
 
 function route() {
+  routeId++;
   stopMedia();
   const name = SECTIONS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
   renderNav(name);
@@ -305,9 +319,11 @@ function orb2d(el, value, kind, onValue) {
 
 // ---------- Depth ----------
 // Hero surfaces ([data-tilt]) lean a few degrees toward the pointer and catch a
-// highlight where it is, like glass under water. Off for reduced motion and touch.
+// highlight where it is, like glass under water. Mouse only (checked on every move,
+// since a 2-in-1 can switch between mouse, pen and touch); off for reduced motion.
+// The listeners are passive, so they never hold up scrolling.
 function depth(root) {
-  if (reduced || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  if (reduced) return;
   let el = null; let box = null; let raf = 0; let px = 0; let py = 0;
   const reset = (x) => {
     x.classList.remove('tilting');
@@ -326,6 +342,7 @@ function depth(root) {
   };
   const leave = () => { if (el) reset(el); el = null; };
   root.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') { leave(); return; }
     const hit = e.target.closest('[data-tilt]');
     if (hit !== el) {
       leave();
@@ -339,6 +356,7 @@ function depth(root) {
     if (!raf) raf = requestAnimationFrame(apply);
   });
   root.addEventListener('pointerleave', leave);
+  root.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') leave(); }, { passive: true });
   root.addEventListener('scroll', leave, { passive: true });
 }
 
@@ -533,12 +551,15 @@ VIEWS.startup = (view) => {
 };
 
 // Windows clean-up: ads and suggestions, then pre-installed apps.
+// Windows clean-up items that only exist on Windows 11 (shown as such on Windows 10).
+const WIN11_ONLY = ['start-ads'];
+
 VIEWS.windows = (view) => {
-  view.innerHTML = `${header(t('winTitle'), t('winLead'))}
+  view.innerHTML = `${header(t('winTitle'), t(isWin10() ? 'winLead10' : 'winLead'))}
     <section class="card"><div class="card-head"><h2>${esc(t('winAds'))}</h2><button class="btn primary" id="all" disabled>${esc(t('removeAll'))}</button></div>
       <label class="check-line"><input type="checkbox" id="restore" checked> ${esc(t('restoreFirst'))}</label>
       <div id="tweaks">${skeleton(t('loading'), 5)}</div><div id="explorer"></div>
-      <div class="note"><p>${esc(t('widgetsNote'))}</p><button class="btn ghost" id="widgets-settings">${esc(t('openTaskbar'))}</button></div></section>
+      <div class="note" ${isWin10() ? 'hidden' : ''}><p>${esc(t('widgetsNote'))}</p><button class="btn ghost" id="widgets-settings">${esc(t('openTaskbar'))}</button></div></section>
     <section class="card"><div class="card-head"><h2>${esc(t('winApps'))}</h2><button class="btn primary" id="rm" disabled>${esc(t('removeSelected'))}</button></div>
       <p class="fine">${esc(t('winAppsLead'))}</p>
       <div id="apps">${skeleton(t('loading'), 3)}</div></section>`;
@@ -575,6 +596,7 @@ VIEWS.windows = (view) => {
         <span class="state ${x.applied ? 'done' : ''}" aria-hidden="true"></span>
         <span class="row-main"><b>${esc(t('tw_' + x.id))}</b><small>${esc(t('tw_' + x.id + '_d'))}</small></span>
         <span class="row-side">
+          ${isWin10() && WIN11_ONLY.includes(x.id) ? `<span class="chip soft">${esc(t('win11Only'))}</span>` : ''}
           ${x.admin ? `<small>${esc(t('asksPermission'))}</small>` : ''}
           ${x.applied
             ? `<span class="chip ok">${esc(t('removed'))}</span>${x.undo ? `<button class="btn link" data-undo="${x.id}">${esc(t('undo'))}</button>` : ''}`
@@ -1240,12 +1262,14 @@ async function start() {
   try { saved = localStorage.getItem('lang'); } catch (e) { /* storage blocked */ }
   let info = { version: '', lang: navigator.language.slice(0, 2) };
   try { info = await bridge('host.info'); } catch (e) { /* preview without the host */ }
+  host = info;
   setLang(saved || info.lang);
   $('#version').textContent = info.version ? `v${info.version}` : '';
   $('#lang').onchange = (e) => { setLang(e.target.value); route(); };
   $('#skip').onclick = () => $('#view').focus();
   depth($('#view'));
   addEventListener('hashchange', route);
+  RAIL.addEventListener('change', () => renderNav($('#view').dataset.section || 'home'));
   addEventListener('beforeunload', stopMedia);
   route();
 }

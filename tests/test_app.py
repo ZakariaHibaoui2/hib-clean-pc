@@ -22,6 +22,7 @@ EXE = ROOT / "dist" / "HibCleanPC.exe"
 SHOTS = ROOT / "tests" / "screenshots"
 SHOTS.mkdir(parents=True, exist_ok=True)
 PORT = 9333
+WEBVIEW_DIR = tempfile.mkdtemp(prefix="hib-app-wv-")
 
 results = []
 
@@ -53,7 +54,9 @@ def wait(fn, timeout=60):
 
 def launch(extra=None):
     # HIB_READONLY: the app refuses every action that would change this PC.
-    env = {**os.environ, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={PORT}", "HIB_READONLY": "1", **(extra or {})}
+    # HIB_WEBVIEW_DIR: its own browser folder, so the test can run beside an open copy of the app.
+    env = {**os.environ, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={PORT}", "HIB_READONLY": "1",
+           "HIB_WEBVIEW_DIR": WEBVIEW_DIR, **(extra or {})}
     return subprocess.Popen([str(EXE)], env=env)
 
 
@@ -251,6 +254,7 @@ def main():
         except subprocess.TimeoutExpired:
             proc.kill()
         shutil.rmtree(sandbox, ignore_errors=True)
+        shutil.rmtree(WEBVIEW_DIR, ignore_errors=True)
     docs = Path(subprocess.run(["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('MyDocuments')"],
                                capture_output=True, text=True).stdout.strip())
     pdfs = sorted(docs.glob("Laptop check*.pdf"), key=lambda f: f.stat().st_mtime)
