@@ -54,7 +54,7 @@ jobs:
       - name: Script tests
         run: python tests/test_scripts.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: HibCleanPC
           path: dist/HibCleanPC.exe
