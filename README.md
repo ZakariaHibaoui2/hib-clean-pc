@@ -19,7 +19,7 @@ English · Français · العربية
 
 <br>
 
-<img src="assets/screens/home.png" width="820" alt="Hib Clean PC home screen: a health score out of 100 with the four most useful fixes, and tiles for free space, memory, junk files, battery health, app updates and ad blocking">
+<img src="assets/demo.webp" width="820" alt="Hib Clean PC in action: the 3D glass orb fills to a health score of 69, tilts with the mouse, then the tour moves through Clean up, Windows clean-up, Battery and Ad blocking">
 
 </div>
 

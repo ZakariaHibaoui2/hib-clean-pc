@@ -80,41 +80,78 @@ namespace HibCleanPC
             Application.Run(new MainForm(args));
         }
 
-        public static string Res(string sub) { return Path.Combine(DataDir, Version, sub); }
+        static string root;
+        public static string Res(string sub) { return Path.Combine(root, sub); }
 
-        // Extracts the interface, the scripts and the WebView2 loader next to each
-        // other, once per version.
+        // Extracts the interface, the scripts and the WebView2 loader next to each other,
+        // into a folder of their own per build. A copy of the app that is still running keeps
+        // its files open; a new build then never has to overwrite them.
         static void Unpack()
         {
-            string root = Path.Combine(DataDir, Version);
-            string stamp = Path.Combine(root, ".ready");
             var asm = Assembly.GetExecutingAssembly();
-            string build = asm.GetManifestResourceNames().Contains("build.txt") ? ReadRes("build.txt") : "";
-            if (File.Exists(stamp) && File.ReadAllText(stamp) == build) return;
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-            Directory.CreateDirectory(root);
-            foreach (var pair in new[] { "ui.zip|ui", "scripts.zip|scripts" })
+            string build = asm.GetManifestResourceNames().Contains("build.txt") ? ReadRes("build.txt").Trim() : Version;
+            string name = Regex.Replace(build, "[^A-Za-z0-9.]", "");
+            if (name.Length > 16) name = name.Substring(0, 16);
+            string parent = Path.Combine(DataDir, "app");
+            root = Path.Combine(parent, name);
+            if (File.Exists(Path.Combine(root, ".ready"))) { Tidy(parent); return; }
+
+            // Built in a temporary folder and moved into place at the end, so a half-written
+            // copy is never used and two copies starting together can't clash.
+            string temp = Path.Combine(parent, "tmp-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(temp);
+            try
             {
-                var p = pair.Split('|');
-                using (var s = asm.GetManifestResourceStream(p[0]))
-                using (var zip = new ZipArchive(s, ZipArchiveMode.Read))
+                foreach (var pair in new[] { "ui.zip|ui", "scripts.zip|scripts" })
                 {
-                    string dest = Path.Combine(root, p[1]);
-                    foreach (var entry in zip.Entries)
+                    var p = pair.Split('|');
+                    using (var s = asm.GetManifestResourceStream(p[0]))
+                    using (var zip = new ZipArchive(s, ZipArchiveMode.Read))
                     {
-                        string full = Path.GetFullPath(Path.Combine(dest, entry.FullName));
-                        if (!full.StartsWith(Path.GetFullPath(dest) + Path.DirectorySeparatorChar)) continue;
-                        if (entry.FullName.EndsWith("/")) { Directory.CreateDirectory(full); continue; }
-                        Directory.CreateDirectory(Path.GetDirectoryName(full));
-                        entry.ExtractToFile(full, true);
+                        string dest = Path.Combine(temp, p[1]);
+                        foreach (var entry in zip.Entries)
+                        {
+                            string full = Path.GetFullPath(Path.Combine(dest, entry.FullName));
+                            if (!full.StartsWith(Path.GetFullPath(dest) + Path.DirectorySeparatorChar)) continue;
+                            if (entry.FullName.EndsWith("/")) { Directory.CreateDirectory(full); continue; }
+                            Directory.CreateDirectory(Path.GetDirectoryName(full));
+                            entry.ExtractToFile(full, true);
+                        }
                     }
                 }
+                string runtime = Path.Combine(temp, "runtime");
+                Directory.CreateDirectory(runtime);
+                using (var s = asm.GetManifestResourceStream("WebView2Loader.dll"))
+                using (var f = File.Create(Path.Combine(runtime, "WebView2Loader.dll"))) s.CopyTo(f);
+                File.WriteAllText(Path.Combine(temp, ".ready"), build);
+                if (Directory.Exists(root)) TryDelete(root);   // an unfinished older attempt
+                if (!Directory.Exists(root)) Directory.Move(temp, root);
             }
-            string runtime = Path.Combine(root, "runtime");
-            Directory.CreateDirectory(runtime);
-            using (var s = asm.GetManifestResourceStream("WebView2Loader.dll"))
-            using (var f = File.Create(Path.Combine(runtime, "WebView2Loader.dll"))) s.CopyTo(f);
-            File.WriteAllText(stamp, build);
+            finally
+            {
+                if (Directory.Exists(temp)) TryDelete(temp);
+            }
+            if (!File.Exists(Path.Combine(root, ".ready"))) throw new IOException("the app folder could not be prepared in " + parent);
+            Tidy(parent);
+        }
+
+        // Removes other builds' folders (and the pre-1.0.1 layout); skips any still in use.
+        static void Tidy(string parent)
+        {
+            foreach (var dir in Directory.GetDirectories(parent))
+            {
+                if (string.Equals(dir, root, StringComparison.OrdinalIgnoreCase)) continue;
+                // Another copy may be unpacking into its temporary folder right now.
+                if (Path.GetFileName(dir).StartsWith("tmp-") && Directory.GetCreationTimeUtc(dir) > DateTime.UtcNow.AddHours(-1)) continue;
+                TryDelete(dir);
+            }
+            string legacy = Path.Combine(DataDir, Version);
+            if (Directory.Exists(legacy)) TryDelete(legacy);
+        }
+
+        static void TryDelete(string dir)
+        {
+            try { Directory.Delete(dir, true); } catch { }
         }
 
         public static string ReadRes(string name)
@@ -160,12 +197,20 @@ namespace HibCleanPC
             try { DwmSetWindowAttribute(Handle, 20, ref on, 4); } catch { } // dark title bar
         }
 
+        // Tests and the demo recorder can run beside an open copy of the app with their own browser folder.
+        static string WebViewDir()
+        {
+            string dir = Environment.GetEnvironmentVariable("HIB_WEBVIEW_DIR");
+            if (Environment.GetEnvironmentVariable("HIB_READONLY") == "1" && !string.IsNullOrEmpty(dir)) return dir;
+            return Path.Combine(Program.DataDir, "WebView");
+        }
+
         async Task Start()
         {
             try
             {
                 CoreWebView2Environment.SetLoaderDllFolderPath(Program.Res("runtime"));
-                var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Program.DataDir, "WebView"));
+                var env = await CoreWebView2Environment.CreateAsync(null, WebViewDir());
                 await web.EnsureCoreWebView2Async(env);
             }
             catch (Exception ex)
