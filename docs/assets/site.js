@@ -42,12 +42,13 @@ const tabs = $$('[role="tab"]');
 const img = $('#shot-img');
 const cap = $('#shot-cap');
 const panel = $('#shot');
+const shotLink = $('#shot-link');
 function select(tab, focus) {
   tabs.forEach((t) => { const on = t === tab; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; });
   panel.setAttribute('aria-labelledby', tab.id);
   if (focus) tab.focus();
   if (img.getAttribute('src') === tab.dataset.src) return;
-  const swap = () => { img.src = tab.dataset.src; img.alt = tab.dataset.alt; cap.textContent = tab.dataset.cap; };
+  const swap = () => { img.src = tab.dataset.src; img.alt = tab.dataset.alt; cap.textContent = tab.dataset.cap; shotLink.href = tab.dataset.src; };
   if (reduced.matches) { swap(); return; }
   img.classList.add('is-swapping');
   const pre = new Image();
@@ -85,6 +86,81 @@ if (tilt) {
   panel.addEventListener('pointerleave', () => { tilt.style.setProperty('--ry', '0deg'); tilt.style.setProperty('--rx', '0deg'); });
 }
 
+/* ---------- phones, tablets and Macs: send the page to a PC ---------- */
+const root = document.documentElement;
+const pageUrl = 'https://zakariahibaoui2.github.io/hib-clean-pc/';
+const shareUrl = (location.origin + location.pathname === pageUrl || location.protocol === 'file:' ? pageUrl : location.origin + location.pathname) + '#install';
+const device = root.dataset.device || '';
+if (device) {
+  $$('.away-device').forEach((el) => {
+    el.textContent = el.closest('.away-hero') ? device.charAt(0).toUpperCase() + device.slice(1) : device;
+  });
+}
+const installSection = $('#install');
+const syncInstallLabel = () => installSection.setAttribute('aria-labelledby', root.dataset.os === 'away' ? 'away-title' : 'install-title');
+syncInstallLabel();
+
+if (navigator.share) {
+  $$('[data-share]').forEach((btn) => {
+    btn.hidden = false;
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.share({ title: 'Hib Clean PC', text: 'Install Hib Clean PC on my Windows PC', url: shareUrl });
+      } catch (err) { /* closed the share sheet */ }
+    });
+  });
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (err) { /* fall through */ }
+  const t = Object.assign(document.createElement('textarea'), { value: text, readOnly: true });
+  t.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.append(t);
+  t.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+  t.remove();
+  return ok;
+}
+$$('[data-copy-link]').forEach((btn) => {
+  const label = $('span', btn);
+  let timer = 0;
+  btn.addEventListener('click', async () => {
+    const ok = await copyText(shareUrl);
+    label.textContent = ok ? 'Link copied. Paste it on your PC' : shareUrl;
+    live.textContent = ok ? 'Link copied' : '';
+    btn.classList.toggle('is-done', ok);
+    clearTimeout(timer);
+    timer = setTimeout(() => { label.textContent = 'Copy link for your PC'; btn.classList.remove('is-done'); }, 3200);
+  });
+});
+$$('[data-mailto]').forEach((a) => {
+  a.href = 'mailto:?subject=' + encodeURIComponent('Hib Clean PC for my PC') + '&body=' + encodeURIComponent('Install Hib Clean PC on my Windows PC: ' + shareUrl);
+});
+$$('[data-show-windows]').forEach((btn) => btn.addEventListener('click', () => {
+  root.dataset.os = 'windows';
+  syncInstallLabel();
+  const h = $('#install-title');
+  h.setAttribute('tabindex', '-1');
+  h.focus({ preventScroll: true });
+  installSection.scrollIntoView({ behavior: reduced.matches ? 'auto' : 'smooth', block: 'start' });
+}));
+
+/* QR codes for the page, drawn on this device when they come near the screen. */
+const qrBoxes = $$('[data-qr]');
+if (qrBoxes.length && 'IntersectionObserver' in window) {
+  const qrIO = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      qrIO.unobserve(entry.target);
+      import('./qr.js').then(({ qrSvg }) => {
+        entry.target.innerHTML = qrSvg(shareUrl, { label: 'QR code for ' + shareUrl.replace('https://', '') });
+      }).catch(() => { entry.target.closest('figure').hidden = true; });
+    });
+  }, { rootMargin: '300px' });
+  qrBoxes.forEach((b) => qrIO.observe(b));
+}
+
 /* ---------- the fixes: scroll progress drives the score ---------- */
 const orbEl = $('#orb');
 const START = Number(orbEl.dataset.start) || 69;
@@ -98,9 +174,12 @@ let orb = null;
 function scrollScore() {
   const vh = innerHeight;
   let score = START;
+  // On tall screens the first fix is already in view at the top of the page;
+  // hold the score at its start until the visitor actually scrolls.
+  const gate = Math.min(1, scrollY / (vh * 0.25));
   steps.forEach((step) => {
     const r = step.getBoundingClientRect();
-    const p = Math.min(1, Math.max(0, (vh * 0.62 - r.top) / (r.height * 0.55)));
+    const p = gate * Math.min(1, Math.max(0, (vh * 0.62 - r.top) / (r.height * 0.55)));
     step.classList.toggle('is-on', p > 0.45);
     score += Number(step.dataset.delta) * p;
   });

@@ -4,20 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Hib Clean PC: free PC cleaner, battery check and ad blocker for Windows</title>
-  <meta name="description" content="Hib Clean PC is a free, open-source app for Windows 11 and 10: one health score, junk file clean-up, startup apps, Windows ads removed, battery health, one-click app updates, ad blocking in every app and a used laptop check with a PDF report.">
+  <meta name="description" content="Hib Clean PC is a free, open-source app for Windows 11 and 10: one health score, junk file clean-up, a security check, big files, privacy, startup apps, Windows ads removed, battery health, one-click app updates, ad blocking in every app and a used laptop check.">
   <link rel="canonical" href="https://zakariahibaoui2.github.io/hib-clean-pc/">
   <meta name="theme-color" content="#071a26">
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
-  <link rel="icon" href="assets/icon.png" type="image/png" sizes="256x256">
-  <link rel="apple-touch-icon" href="assets/icon.png">
+  <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="Hib Clean PC">
+  <meta name="format-detection" content="telephone=no">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Hib Clean PC">
   <meta property="og:title" content="Hib Clean PC: free PC cleaner for Windows">
   <meta property="og:description" content="One health score, junk files cleaned, Windows ads removed, battery explained and ads blocked in every app. Free and open source.">
   <meta property="og:url" content="https://zakariahibaoui2.github.io/hib-clean-pc/">
   <meta property="og:image" content="https://zakariahibaoui2.github.io/hib-clean-pc/og.png">
-  <meta property="og:image:alt" content="Hib Clean PC, a free clean-up and health app for Windows">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Hib Clean PC: your PC, cleaned up and explained. The app's health screen with its glass score orb.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Hib Clean PC: free PC cleaner for Windows">
   <meta name="twitter:description" content="One health score, junk files cleaned, Windows ads removed, battery explained and ads blocked in every app. Free and open source.">
@@ -26,13 +31,31 @@
   <link rel="preload" href="fonts/Figtree.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
   <script>
+    // Decide before first paint which install help to show. Phones, tablets, Macs
+    // and Chromebooks can't run a Windows app, so they get "send it to your PC"
+    // instead. Anything unrecognised keeps the Windows install (the default).
+    (function () {
+      try {
+        var ua = navigator.userAgent || '', d = navigator.userAgentData, p = (d && d.platform) || '', dev = '';
+        if (/iPhone|iPod/.test(ua)) dev = 'an iPhone';
+        else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) dev = 'an iPad';
+        else if (/Android/.test(ua) || p === 'Android') dev = /Mobile/.test(ua) || (d && d.mobile) ? 'an Android phone' : 'an Android tablet';
+        else if (p === 'Windows' || /Windows NT/.test(ua)) dev = '';
+        else if (/CrOS/.test(ua) || p === 'Chrome OS') dev = 'a Chromebook';
+        else if (p === 'macOS' || /Mac OS X/.test(ua)) dev = 'a Mac';
+        else if (/Linux|X11/.test(ua) || p === 'Linux') dev = 'Linux';
+        if (dev) { document.documentElement.dataset.os = 'away'; document.documentElement.dataset.device = dev; }
+        else document.documentElement.dataset.os = 'windows';
+      } catch (e) {}
+    })();
     // Decide before first paint whether the 3D orb will run, so the right still shows.
     (function () {
       try {
         var q = location.search.indexOf('capture') > -1;
         var c = document.createElement('canvas');
         var gl = c.getContext('webgl2') || c.getContext('webgl');
-        if (gl && (q || !matchMedia('(prefers-reduced-motion: reduce)').matches)) document.documentElement.classList.add('gl');
+        var save = navigator.connection && navigator.connection.saveData;
+        if (gl && (q || (!save && !matchMedia('(prefers-reduced-motion: reduce)').matches))) document.documentElement.classList.add('gl');
       } catch (e) {}
     })();
   </script>
@@ -73,8 +96,9 @@
         <div class="orb-pin">
           <div class="orb" id="orb" data-start="69">
             <div class="orb-floor" aria-hidden="true"></div>
-            <img class="orb-still" src="assets/orb.webp" width="720" height="720" alt="" fetchpriority="high" decoding="async">
-            <script>if (document.documentElement.classList.contains('gl') && location.search.indexOf('capture') < 0) document.currentScript.previousElementSibling.src = 'assets/orb-empty.webp';</script>
+            <!-- One request only: the empty glass when the 3D orb will fill it, the filled still otherwise. -->
+            <script>(function (s) { var i = new Image(672, 672); i.className = 'orb-still'; i.alt = ''; i.decoding = 'async'; i.setAttribute('fetchpriority', 'high'); i.src = 'assets/' + (document.documentElement.classList.contains('gl') && location.search.indexOf('capture') < 0 ? 'orb-empty' : 'orb') + '.webp'; s.parentNode.insertBefore(i, s); })(document.currentScript);</script>
+            <noscript><img class="orb-still" src="assets/orb.webp" width="672" height="672" alt="" decoding="async"></noscript>
             <p class="readout" aria-hidden="true"><span class="readout-n" id="score">69</span><span class="readout-of">/100</span></p>
           </div>
           <p class="verdict" id="verdict" aria-hidden="true">Good, with a few things to fix</p>
@@ -85,17 +109,33 @@
       <div class="stage-copy">
         <div class="hero wrap-l">
           <h1 id="hero-title">Your PC, cleaned up and explained.</h1>
-          <p class="lead">Hib Clean PC gives your Windows PC one health score, then fixes what matters: junk files, slow startup, Windows ads, app updates and ads in every app. Free, open source, and every change can be undone.</p>
+          <p class="lead">Hib Clean PC gives your Windows PC one health score, then fixes what matters: junk files, slow startup, Windows ads, security gaps, app updates and ads in every app. Free, open source, and every change can be undone.</p>
 
-          <div class="cmd" role="group" aria-label="Install command">
-            <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
-            <code class="cmd-text" id="cmd-hero" translate="no">irm https://zakariahibaoui2.github.io/hib-clean-pc/install.ps1 | iex</code>
-            <button class="btn btn-solid copy" type="button" data-copy="cmd-hero">Copy</button>
+          <div class="install-win">
+            <div class="cmd" role="group" aria-label="Install command">
+              <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
+              <code class="cmd-text" id="cmd-hero" translate="no">irm https://<wbr>zakariahibaoui2.github.io/<wbr>hib-clean-pc/<wbr>install.ps1 <wbr>| iex</code>
+              <button class="btn btn-solid copy" type="button" data-copy="cmd-hero">Copy</button>
+            </div>
+            <p class="hint">Paste it in PowerShell. No administrator rights needed. <a href="#install">How to install</a></p>
           </div>
-          <p class="hint">Paste it in PowerShell. No administrator rights needed. <a href="#install">How to install</a></p>
+
+          <div class="install-away away-hero">
+            <p class="away-note"><span class="away-device">This device</span> can't run Windows apps, so send this page to your PC and install it there in one line.</p>
+            <div class="away-actions">
+              <button class="btn btn-solid share-btn" type="button" data-share hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5m0 0L7.5 8M12 3.5 16.5 8M6 11.5H5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 5 20.5h14a1.5 1.5 0 0 0 1.5-1.5v-6a1.5 1.5 0 0 0-1.5-1.5h-1"/></svg>
+                Send to my PC
+              </button>
+              <button class="btn btn-line" type="button" data-copy-link>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+                <span>Copy link for your PC</span>
+              </button>
+            </div>
+          </div>
 
           <div class="actions">
-            <a class="btn btn-line" href="https://github.com/ZakariaHibaoui2/hib-clean-pc/releases/latest">
+            <a class="btn btn-line install-win" href="https://github.com/ZakariaHibaoui2/hib-clean-pc/releases/latest">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
               Download for Windows
             </a>
@@ -104,7 +144,7 @@
               Read the source
             </a>
           </div>
-          <p class="meta">For Windows 11 and 10. In English, French and Arabic. GPL-3.0.</p>
+          <p class="meta">For Windows 11 and 10 on any PC: desktops, laptops, tablets and touch screens, Intel, AMD or ARM. In English, French and Arabic. GPL-3.0.</p>
         </div>
 
         <div class="fixes wrap-l" id="fixes">
@@ -143,7 +183,7 @@
     <section class="tools" id="tools" aria-labelledby="tools-title">
       <div class="wrap">
         <div class="head">
-          <h2 id="tools-title">Eight tools, one small window</h2>
+          <h2 id="tools-title">Eleven tools, one small window</h2>
           <p class="sub">Each tool is a short PowerShell script you can read on GitHub, with a plain-language screen on top.</p>
         </div>
         <ul class="tool-list">
@@ -195,6 +235,24 @@
             <p>Before buying or selling: hardware, SSD wear, battery health and Windows activation, plus screen, keyboard, camera, mic and speaker tests.</p>
             <span class="said">Saved as a PDF report</span>
           </li>
+          <li class="tool">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 5 6v5.5c0 4.3 3 7.6 7 9 4-1.4 7-4.7 7-9V6z"/><path d="M12 8.5v4M12 15.5v.01"/></svg>
+            <h3>Security check <span class="new">New in 1.1</span></h3>
+            <p>Defender real-time protection and its definitions, the firewall, Windows Update, drive encryption, Secure Boot, TPM, SmartScreen and UAC, each with a button to the right setting.</p>
+            <span class="said">No admin rights needed</span>
+          </li>
+          <li class="tool">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4M9 16.5v-3m3 3v-5m3 5v-2"/></svg>
+            <h3>Big files <span class="new">New in 1.1</span></h3>
+            <p>Files of 100&nbsp;MB or more in your personal folders, OneDrive included, and old installers in Downloads. Show them in their folder or move them to the Recycle Bin.</p>
+            <span class="said">Never deleted for good</span>
+          </li>
+          <li class="tool">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <h3>Privacy <span class="new">New in 1.1</span></h3>
+            <p>Which apps used your camera, microphone and location recently, which are using them right now, and a link to the setting that controls each.</p>
+            <span class="said">Camera, mic and location</span>
+          </li>
         </ul>
       </div>
     </section>
@@ -203,23 +261,27 @@
       <div class="wrap">
         <div class="head">
           <h2 id="screens-title">See it before you install it</h2>
-          <p class="sub">Real screens from the app, in the three languages it speaks.</p>
+          <p class="sub">Real screens from the app, in the three languages it speaks. Tap a screen to see it full size.</p>
         </div>
         <div class="tabs" role="tablist" aria-label="App screens">
-          <button role="tab" type="button" id="t-home" aria-controls="shot" aria-selected="true" data-src="assets/home.webp" data-alt="Health screen in French: a score of 69 out of 100, the four most useful fixes and tiles for free space, memory, junk files, battery health, updates and ad blocking" data-cap="Health, here in French: the score, Quick clean and the fixes that help most.">Health</button>
+          <button role="tab" type="button" id="t-home" aria-controls="shot" aria-selected="true" data-src="assets/home.webp" data-alt="Health screen: a score of 57 out of 100, the fixes that help most and tiles for free space, memory, junk files, battery health, updates, ad blocking and security" data-cap="Health: the score, Quick clean and the fixes that help most.">Health</button>
           <button role="tab" type="button" id="t-clean" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/clean.webp" data-alt="Clean up screen listing temporary files, browser cache, Windows temporary files and other categories with their sizes" data-cap="Clean up says what each category is before you clean it.">Clean up</button>
           <button role="tab" type="button" id="t-windows" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/windows.webp" data-alt="Windows clean-up screen listing ads and suggestions, each with a Remove button" data-cap="Windows clean-up: 11 kinds of ads and suggestions, and a restore point first if you want one.">Windows clean-up</button>
           <button role="tab" type="button" id="t-battery" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/battery.webp" data-alt="Battery screen showing 84 percent health and the battery used in each recent sleep" data-cap="Battery: what's left of the original charge, and what drains it overnight.">Battery</button>
           <button role="tab" type="button" id="t-adblock" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/adblock.webp" data-alt="Ad blocking screen with AdGuard DNS, Quad9, Cloudflare and Automatic options" data-cap="Ad blocking: pick a DNS, or Automatic to put back what you had.">Ad blocking</button>
           <button role="tab" type="button" id="t-laptop" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/laptop.webp" data-alt="Used laptop check listing the model, processor, memory, graphics, storage, screen, Windows and battery" data-cap="Used laptop check: everything a buyer should see, then a PDF report.">Laptop check</button>
-          <button role="tab" type="button" id="t-ar" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/home-ar.webp" data-alt="Health screen in Arabic, laid out right to left" data-cap="The whole app also works right to left, in Arabic.">العربية</button>
+          <button role="tab" type="button" id="t-security" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/security.webp" data-alt="Security check: Defender, firewall, Windows Update, drive encryption, Secure Boot, TPM, SmartScreen and UAC, each with an Open settings button" data-cap="Security check: what protects your PC, and a button to fix each gap.">Security</button>
+          <button role="tab" type="button" id="t-bigfiles" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/bigfiles.webp" data-alt="Big files: the largest files in your folders, each with Show in folder and Move to Recycle Bin" data-cap="Big files: the largest files, moved to the Recycle Bin only.">Big files</button>
+          <button role="tab" type="button" id="t-privacy" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/privacy.webp" data-alt="Privacy: apps that used the camera, microphone and location recently or right now" data-cap="Privacy: who used your camera, microphone and location.">Privacy</button>
+          <button role="tab" type="button" id="t-fr" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/home-fr.webp" data-alt="Health screen in French: Santé de votre PC, the score and the fixes to make first" data-cap="Every screen is translated into French." lang="fr">Français</button>
+          <button role="tab" type="button" id="t-ar" aria-controls="shot" aria-selected="false" tabindex="-1" data-src="assets/home-ar.webp" data-alt="Health screen in Arabic, laid out right to left" data-cap="The whole app also works right to left, in Arabic." lang="ar" dir="rtl">العربية</button>
         </div>
         <figure class="frame" id="shot" role="tabpanel" aria-labelledby="t-home" tabindex="0">
           <div class="frame-tilt">
             <div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span translate="no">Hib Clean PC</span></div>
-            <img id="shot-img" src="assets/home.webp" width="1240" height="820" loading="lazy" decoding="async" alt="Health screen in French: a score of 69 out of 100, the four most useful fixes and tiles for free space, memory, junk files, battery health, updates and ad blocking">
+            <a class="shot-open" id="shot-link" href="assets/home.webp" target="_blank" rel="noopener"><img id="shot-img" src="assets/home.webp" width="1240" height="820" loading="lazy" decoding="async" alt="Health screen: a score of 57 out of 100, the fixes that help most and tiles for free space, memory, junk files, battery health, updates, ad blocking and security"><span class="shot-zoom">Open full size</span></a>
           </div>
-          <figcaption id="shot-cap">Health, here in French: the score, Quick clean and the fixes that help most.</figcaption>
+          <figcaption id="shot-cap">Health: the score, Quick clean and the fixes that help most.</figcaption>
         </figure>
       </div>
     </section>
@@ -252,9 +314,11 @@
         </div>
         <p class="tested">
           Tested on a real PC before release:
-          <span><b>38</b> script checks,</span>
-          <span><b>49</b> accuracy checks,</span>
-          <span><b>36</b> app checks,</span>
+          <span><b>62</b> script checks,</span>
+          <span><b>98</b> accuracy checks,</span>
+          <span><b>62</b> app checks,</span>
+          <span><b>24</b> health score tests,</span>
+          <span><b>70</b> device checks,</span>
           <span><b>10</b> install checks</span>
           <span>and <b>13</b> admin checks.</span>
         </p>
@@ -264,14 +328,42 @@
 
     <section class="install" id="install" aria-labelledby="install-title">
       <div class="wrap">
-        <div class="install-card">
+        <div class="install-card install-away">
+          <div class="away-grid">
+            <div>
+              <h2 id="away-title">Made for Windows PCs</h2>
+              <p class="away-lead">You're on <span class="away-device">a device</span>, which can't run Windows apps. Hib Clean PC works on Windows 11 and 10 laptops and desktops, so send this page to your PC and install it there in one line.</p>
+              <div class="away-actions">
+                <button class="btn btn-solid share-btn" type="button" data-share hidden>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5m0 0L7.5 8M12 3.5 16.5 8M6 11.5H5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 5 20.5h14a1.5 1.5 0 0 0 1.5-1.5v-6a1.5 1.5 0 0 0-1.5-1.5h-1"/></svg>
+                  Send to my PC
+                </button>
+                <button class="btn btn-line" type="button" data-copy-link>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+                  <span>Copy link for your PC</span>
+                </button>
+                <a class="btn btn-ghost" data-mailto href="mailto:?subject=Hib%20Clean%20PC%20for%20my%20PC&amp;body=Install%20Hib%20Clean%20PC%20on%20my%20Windows%20PC%3A%20https%3A%2F%2Fzakariahibaoui2.github.io%2Fhib-clean-pc%2F%23install">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-7"/></svg>
+                  Email it to myself
+                </a>
+              </div>
+              <p class="away-more"><button class="linkish" type="button" data-show-windows>Show the Windows install steps anyway</button></p>
+            </div>
+            <figure class="qr">
+              <div class="qr-code" data-qr></div>
+              <figcaption>Scan to open this page on another device.</figcaption>
+            </figure>
+          </div>
+        </div>
+
+        <div class="install-card install-win">
           <h2 id="install-title">Install in one line</h2>
           <ol class="how">
             <li><span class="n" aria-hidden="true">1</span><p>Press the <kbd>Windows</kbd> key, type <b>powershell</b> and press <kbd>Enter</kbd>.</p></li>
             <li><span class="n" aria-hidden="true">2</span><div class="how-cmd"><p>Paste this and press <kbd>Enter</kbd>:</p>
               <div class="cmd cmd-lg" role="group" aria-label="Install command">
                 <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
-                <code class="cmd-text" id="cmd-install" translate="no">irm https://zakariahibaoui2.github.io/hib-clean-pc/install.ps1 | iex</code>
+                <code class="cmd-text" id="cmd-install" translate="no">irm https://<wbr>zakariahibaoui2.github.io/<wbr>hib-clean-pc/<wbr>install.ps1 <wbr>| iex</code>
                 <button class="btn btn-solid copy" type="button" data-copy="cmd-install">Copy</button>
               </div></div></li>
             <li><span class="n" aria-hidden="true">3</span><p>Open <b>Hib Clean PC</b> from the Start menu or your desktop.</p></li>
@@ -287,7 +379,7 @@
               Download the latest release
             </a>
           </div>
-          <p class="req">Needs Windows 10 or 11 with Microsoft Edge WebView2, which Windows 11 already has.</p>
+          <p class="req">Needs Windows 10 or 11 with Microsoft Edge WebView2, which Windows 11 already has. Runs on x64 and ARM64 PCs, scales to any screen and works with touch, pen and high-contrast mode.</p>
         </div>
       </div>
     </section>
@@ -301,6 +393,8 @@
           <details><summary>Windows says “Windows protected your PC”</summary><p>That appears for apps without a paid signing certificate when you download the .exe. Use the one-line install to avoid it, or choose More info, then Run anyway.</p></details>
           <details><summary>Does it send anything over the internet?</summary><p>No data about you or your PC. The only network use is winget checking for app updates when you open App updates, and a DNS test that shows whether ad blocking works.</p></details>
           <details><summary>Does ad blocking work on school or work Wi-Fi?</summary><p>Some school and work networks, and VPNs, force their own DNS, so it may not apply there. You can switch back to Automatic at any time.</p></details>
+          <details><summary>Can I use it on a Mac, an iPhone or Android?</summary><p>No, it's made for Windows 11 and 10 PCs. If you're reading this on a phone, use <a href="#install">Send to my PC</a> or the QR code to open this page on your PC.</p></details>
+          <details><summary>Does Big files delete anything?</summary><p>Only if you ask, and only to the Recycle Bin, so you can always put a file back. It never deletes permanently.</p></details>
           <details><summary>How do I uninstall it?</summary><p>Settings &gt; Apps &gt; Installed apps &gt; Hib Clean PC &gt; Uninstall. Undo the changes it made from inside the app first if you want Windows exactly as it was.</p></details>
         </div>
       </div>
@@ -312,6 +406,10 @@
       <div class="foot-brand">
         <a class="brand" href="#main"><img src="assets/mark.svg" width="32" height="32" alt=""><span translate="no">Hib Clean PC</span></a>
         <p>Made by <a href="https://github.com/ZakariaHibaoui2">Zakaria Hibaoui</a>. Free and open source under GPL-3.0. Not affiliated with Microsoft, AdGuard, Quad9 or Cloudflare.</p>
+        <figure class="foot-qr">
+          <div class="qr-code" data-qr></div>
+          <figcaption>Scan to open this page on your phone or another PC.</figcaption>
+        </figure>
       </div>
       <ul class="foot-links" aria-label="Project">
         <li><a href="https://github.com/ZakariaHibaoui2/hib-clean-pc">Source on GitHub</a></li>

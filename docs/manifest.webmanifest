@@ -1,0 +1,17 @@
+{
+  "name": "Hib Clean PC",
+  "short_name": "Hib Clean PC",
+  "description": "Free, open-source PC care for Windows 11 and 10: one health score, safe clean-up, Windows ads removed, battery health, app updates and ad blocking in every app.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "browser",
+  "background_color": "#071a26",
+  "theme_color": "#071a26",
+  "lang": "en",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/mark.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
