@@ -70,7 +70,7 @@ const I18N = {
     'tw_web-search': 'Bing results in Start search', 'tw_web-search_d': 'Start search looks only at your PC, faster and more private.',
     tw_copilot: 'Copilot button', tw_copilot_d: 'Hides the Copilot button and its pop-ups.',
     tw_feedback: 'Feedback requests', tw_feedback_d: 'Stops Windows asking "how likely are you to recommend…".',
-    tw_widgets: 'Widgets news feed', tw_widgets_d: 'The weather and news panel on the taskbar.',
+    widgetsNote: 'Widgets (the news and weather panel) can only be turned off in Windows Settings: Taskbar, then Widgets.', openTaskbar: 'Open taskbar settings',
     tw_telemetry: 'Diagnostic data', tw_telemetry_d: 'Sends Microsoft the minimum diagnostic data Windows allows.',
 
     batTitle: 'Battery', batLead: 'How healthy your battery is, and what drains it while the laptop sleeps.',
@@ -192,7 +192,7 @@ const I18N = {
     'tw_web-search': 'Résultats Bing dans la recherche', 'tw_web-search_d': 'La recherche ne regarde que votre PC : plus rapide et plus privée.',
     tw_copilot: 'Bouton Copilot', tw_copilot_d: 'Masque le bouton Copilot et ses fenêtres.',
     tw_feedback: 'Demandes d\'avis', tw_feedback_d: 'Windows ne demande plus « recommanderiez-vous… ».',
-    tw_widgets: 'Fil d\'actualités des widgets', tw_widgets_d: 'Le panneau météo et actualités de la barre des tâches.',
+    widgetsNote: 'Les widgets (actualités et météo) ne se désactivent que dans les Paramètres de Windows : Barre des tâches, puis Widgets.', openTaskbar: 'Ouvrir les paramètres de la barre des tâches',
     tw_telemetry: 'Données de diagnostic', tw_telemetry_d: 'Envoie le minimum de données de diagnostic permis par Windows.',
 
     batTitle: 'Batterie', batLead: 'La santé de votre batterie, et ce qui la vide pendant la mise en veille.',
@@ -314,7 +314,7 @@ const I18N = {
     'tw_web-search': 'نتائج Bing في بحث ابدأ', 'tw_web-search_d': 'البحث يشمل حاسوبك فقط: أسرع وأكثر خصوصية.',
     tw_copilot: 'زر Copilot', tw_copilot_d: 'يخفي زر Copilot ونوافذه.',
     tw_feedback: 'طلبات التقييم', tw_feedback_d: 'لن يسألك ويندوز «ما مدى احتمال أن توصي…».',
-    tw_widgets: 'أخبار الأدوات', tw_widgets_d: 'لوحة الطقس والأخبار في شريط المهام.',
+    widgetsNote: 'لا يمكن إيقاف الأدوات (لوحة الأخبار والطقس) إلا من إعدادات ويندوز: شريط المهام ثم الأدوات.', openTaskbar: 'فتح إعدادات شريط المهام',
     tw_telemetry: 'بيانات التشخيص', tw_telemetry_d: 'يرسل لمايكروسوفت أقل قدر من بيانات التشخيص يسمح به ويندوز.',
 
     batTitle: 'البطارية', batLead: 'مدى صحة بطاريتك، وما الذي يستنزفها أثناء السكون.',

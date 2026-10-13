@@ -136,8 +136,8 @@ def test_tweaks():
         # One value exists already with a different setting, one doesn't exist.
         reg("add", adv, "/v", "Start_IrisRecommendations", "/t", "REG_DWORD", "/d", "1", "/f")
         listed = {t["id"]: t for t in ps.run("tweaks", {"mode": "list"}, env=env)}
-        check("tweaks list has every tweak", len(listed) == 12 and not listed["start-ads"]["applied"], list(listed))
-        res = ps.run("tweaks", {"mode": "apply", "ids": ["start-ads", "widgets"]}, env=env)
+        check("tweaks list has every tweak", len(listed) == 11 and not listed["start-ads"]["applied"], list(listed))
+        res = ps.run("tweaks", {"mode": "apply", "ids": ["start-ads", "telemetry"]}, env=env)
         check("apply succeeds", all(r["ok"] for r in res), res)
         q = reg("query", adv).stdout
         check("values set to off", "Start_IrisRecommendations    REG_DWORD    0x0" in q and "Start_AccountNotifications    REG_DWORD    0x0" in q, q)
@@ -145,7 +145,7 @@ def test_tweaks():
         check("listed as applied, with undo", listed["start-ads"]["applied"] and listed["start-ads"]["undo"])
         # Applying twice must not overwrite the original backup with the changed values.
         ps.run("tweaks", {"mode": "apply", "ids": ["start-ads"]}, env=env)
-        res = ps.run("tweaks", {"mode": "undo", "ids": ["start-ads", "widgets"]}, env=env)
+        res = ps.run("tweaks", {"mode": "undo", "ids": ["start-ads", "telemetry"]}, env=env)
         check("undo succeeds", all(r["ok"] for r in res), res)
         q = reg("query", adv).stdout
         check("existing value restored to its old setting", "Start_IrisRecommendations    REG_DWORD    0x1" in q, q)

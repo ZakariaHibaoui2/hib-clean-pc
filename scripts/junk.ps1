@@ -8,6 +8,7 @@
 param([string]$Payload = '', [string]$OutFile = '')
 . "$PSScriptRoot\_lib.ps1"
 trap { Fail $_.Exception.Message }
+. "$PSScriptRoot\_fs.ps1"
 $a = Get-Args
 
 $win = $env:windir
@@ -67,32 +68,15 @@ function Dir-Exists([string]$path) {
     try { return [IO.Directory]::Exists($path) } catch { return $false }
 }
 
-# Walks a folder without crossing junctions or symlinks.
+# Walks a folder without crossing junctions or symlinks, at any path length.
 function Get-Files([string]$root, [string]$filter) {
-    $files = New-Object System.Collections.Generic.List[IO.FileInfo]
-    $dirs = New-Object System.Collections.Generic.List[IO.DirectoryInfo]
-    $readable = $true
-    $stack = New-Object System.Collections.Stack
-    $stack.Push((New-Object IO.DirectoryInfo $root))
-    while ($stack.Count -gt 0) {
-        $dir = $stack.Pop()
-        try {
-            foreach ($f in $dir.EnumerateFiles($(if ($filter) { $filter } else { '*' }))) { $files.Add($f) }
-            if (-not $filter) {
-                foreach ($d in $dir.EnumerateDirectories()) {
-                    if (-not ($d.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $stack.Push($d); $dirs.Add($d) }
-                }
-            }
-        } catch {
-            if ($dir.FullName -eq $root) { $readable = $false }
-        }
-    }
-    return @{ files = $files; dirs = $dirs; readable = $readable }
+    $r = [HibFs]::Scan($root, $filter, [string]::IsNullOrEmpty($filter))
+    return @{ files = $r.Files; dirs = $r.Dirs; readable = $r.Readable }
 }
 
 function Old-Enough($file, [int]$hours) {
     if ($hours -le 0) { return $true }
-    try { return $file.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddHours(-$hours) } catch { return $false }
+    return $file.Write -lt [DateTime]::UtcNow.AddHours(-$hours)
 }
 
 function Recycle-Bin-Size {
@@ -119,7 +103,7 @@ if ($a.mode -eq 'scan') {
             $found = Get-Files $root $c.filter
             if (-not $found.readable) { $readable = $false }
             foreach ($f in $found.files) {
-                if (Old-Enough $f $c.age) { $bytes += $f.Length; $count++ }
+                if (Old-Enough $f $c.age) { $bytes += $f.Size; $count++ }
             }
         }
         $result += [ordered]@{ id = $c.id; bytes = $bytes; files = $count; admin = $c.admin; readable = $readable }
@@ -145,7 +129,7 @@ if ($a.mode -eq 'clean') {
         $freed = [long]0; $done = 0; $skipped = 0
         if ($c.id -eq 'delivery' -and (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue)) {
             $before = 0
-            foreach ($root in $c.roots) { if (Safe-Root $root) { foreach ($f in (Get-Files $root).files) { $before += $f.Length; $done++ } } }
+            foreach ($root in $c.roots) { if (Safe-Root $root) { foreach ($f in (Get-Files $root).files) { $before += $f.Size; $done++ } } }
             try { Delete-DeliveryOptimizationCache -Force -ErrorAction Stop; $freed = $before } catch { $skipped = $done; $done = 0 }
             $results += [ordered]@{ id = $c.id; freed = $freed; files = $done; skipped = $skipped }
             continue
@@ -155,17 +139,12 @@ if ($a.mode -eq 'clean') {
             $found = Get-Files $root $c.filter
             foreach ($f in $found.files) {
                 if (-not (Old-Enough $f $c.age)) { continue }
-                $size = $f.Length
-                try {
-                    if ($f.IsReadOnly) { $f.IsReadOnly = $false }
-                    $f.Delete()
-                    $freed += $size; $done++
-                } catch { $skipped++ }
+                if ([HibFs]::Delete($f.Path)) { $freed += $f.Size; $done++ } else { $skipped++ }
             }
             # Remove folders the clean emptied, deepest first, but never the root itself.
             if (-not $c.filter) {
-                $found.dirs | Sort-Object { $_.FullName.Length } -Descending |
-                    ForEach-Object { try { if (-not $_.EnumerateFileSystemInfos().GetEnumerator().MoveNext()) { $_.Delete() } } catch { } }
+                # RemoveIfEmpty only ever removes empty folders.
+                $found.dirs | Sort-Object { $_.Length } -Descending | ForEach-Object { [void][HibFs]::RemoveIfEmpty($_) }
             }
         }
         $results += [ordered]@{ id = $c.id; freed = $freed; files = $done; skipped = $skipped }

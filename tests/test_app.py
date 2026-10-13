@@ -13,6 +13,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+import ps
+
 ROOT = Path(__file__).resolve().parent.parent
 EXE = ROOT / "dist" / "HibCleanPC.exe"
 SHOTS = ROOT / "tests" / "screenshots"
@@ -99,19 +101,45 @@ def main():
                 page.wait_for_timeout(500)
                 page.screenshot(path=str(SHOTS / f"{section}.png"))
 
+            # The screen shows exactly what the scripts measured.
+            truth = {"battery": ps.run("battery", {"mode": "report"}), "startup": ps.run("startup", {"mode": "list"}),
+                     "updates": ps.run("updates", {"mode": "list"}), "tweaks": ps.run("tweaks", {"mode": "list"}),
+                     "laptop": ps.run("laptop")}
+            tiles = page.inner_text("#tiles")
+            if truth["battery"]["hasBattery"]:
+                check("home shows the real battery health", f"{round(truth['battery']['health'])}%" in tiles.replace(",", "."), tiles)
+            check("home shows the real number of app updates", str(len(truth["updates"]["apps"])) in tiles, tiles)
+            badge = page.inner_text('[data-badge="updates"]') if page.locator('[data-badge="updates"]:not([hidden])').count() else "0"
+            check("sidebar badge shows the real number of updates", badge == str(len(truth["updates"]["apps"])), badge)
+            showing = sum(1 for x in truth["tweaks"] if not x["applied"])
+            wbadge = page.inner_text('[data-badge="windows"]') if page.locator('[data-badge="windows"]:not([hidden])').count() else "0"
+            check("sidebar badge shows the real number of Windows ads left", wbadge == str(showing), wbadge)
+
             visit("clean", "#cats li", "clean-up list")
             check("clean-up shows a size for temp files", "B" in page.inner_text("#cats li:first-child .row-side"))
             visit("startup", "#body .row, #body .empty", "startup apps")
+            check("startup screen lists every startup app", page.locator("#body .row").count() == len(truth["startup"]))
+            on = sum(1 for i in truth["startup"] if i["enabled"])
+            check("startup switches match the real on/off states",
+                  page.locator('#body .switch[aria-checked="true"]').count() == on)
             visit("windows", "#tweaks .row", "Windows clean-up")
-            check("Windows clean-up lists 12 changes", page.locator("#tweaks .row").count() == 12)
+            check("Windows clean-up lists 11 changes", page.locator("#tweaks .row").count() == 11)
+            check("items shown as removed match the registry", page.locator("#tweaks .chip.ok").count() == 11 - showing)
             wait(lambda: page.locator("#apps .row, #apps .empty").count() > 0, 60)
             page.screenshot(path=str(SHOTS / "windows.png"))
             visit("battery", ".gauge, .empty", "battery")
+            if truth["battery"]["hasBattery"]:
+                want = str(round(truth["battery"]["health"]))
+                settled = wait(lambda: page.inner_text("#bat-orb .score") == want, 10)
+                check("battery orb settles on the real health", bool(settled), page.inner_text("#bat-orb .score"))
+                check("battery screen lists every sleep on battery", page.locator(".card").first.locator(".row").count() == len(truth["battery"]["sleeps"]))
             visit("updates", "#list .row, .result, .empty", "app updates")
+            check("update list matches winget", page.locator("#list .row").count() == len(truth["updates"]["apps"]))
             visit("adblock", ".choice", "ad blocking")
             check("ad blocking offers 4 choices", page.locator(".choice").count() == 4)
             visit("laptop", "#hw .kv", "used laptop check")
-            check("laptop check shows the CPU", "Intel" in page.inner_text("#hw") or "AMD" in page.inner_text("#hw") or "Qualcomm" in page.inner_text("#hw"))
+            check("laptop check shows the real CPU", truth["laptop"]["cpu"]["name"] in page.inner_text("#hw"))
+            check("laptop check shows the real BIOS version", truth["laptop"]["bios"]["version"] in page.inner_text("#hw"))
             check("laptop check has 5 tests", page.locator(".test-card").count() == 5)
 
             # Keyboard test: pressing keys lights them up.

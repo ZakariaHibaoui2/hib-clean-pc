@@ -26,10 +26,10 @@ English · Français · العربية
 
 | | |
 |---|---|
-| **PC health score** | A liquid orb that fills to your score from 0 to 100, the fixes that matter most, and **Quick clean** for the junk that needs no permission. |
+| **PC health score** | A 3D glass orb that fills to your score from 0 to 100, the fixes that matter most, and **Quick clean** for the junk that needs no permission. |
 | **Clean up** | Temporary files, browser caches, old Windows Update files, error reports and the Recycle Bin. Files from the last 24 hours and anything in use are left alone, and your passwords, history and logins stay. |
 | **Startup apps** | Every app that starts with Windows, with an on/off switch. It's the same switch Task Manager uses, so nothing is deleted. |
-| **Windows clean-up** | Turns off 12 kinds of Windows 11 ads and suggestions (Start, lock screen, Settings, File Explorer, Bing in search, Copilot, widgets…) and removes pre-installed junk apps. Every change can be undone, and it can make a restore point first. |
+| **Windows clean-up** | Turns off 11 kinds of Windows 11 ads and suggestions (Start, lock screen, Settings, File Explorer, Bing in search, Copilot…), and opens the Widgets switch in Settings and removes pre-installed junk apps. Every change can be undone, and it can make a restore point first. |
 | **Battery** | Battery health in plain words ("holds 84% of its original charge"), how much it drained in each recent sleep, what woke the laptop, and which devices are allowed to wake it. |
 | **App updates** | Updates all your apps in one click with winget, Windows' own installer. |
 | **Ad blocking for every app** | One switch sets AdGuard DNS, which blocks ads and trackers in every app and game, not just the browser. Quad9 and Cloudflare are offered too, and "Automatic" puts back exactly what you had. |
@@ -88,9 +88,12 @@ python tools/build.py              # dist/HibCleanPC.exe, using the C# compiler 
 python tests/test_scripts.py       # the scripts, against a sandbox folder and a test registry key
 python tests/test_app.py           # launches the real app read-only and visits every screen
 python tests/test_install.py       # installs, checks shortcuts and Settings > Apps, uninstalls
+python tests/test_accuracy.py      # every number checked against an independent source (registry, Python, raw tool output)
+node tests/score.test.mjs          # the health score, exact results for known situations
+python tests/test_admin.py         # the features that need admin rights, for real, then everything put back (asks permission once)
 ```
 
-The tests never change your settings: changes run in a sandbox folder and a throwaway registry key, and the app test runs the app in a read-only mode that refuses every action.
+On the development PC: 38 script checks, 49 accuracy checks, 36 app checks, 10 install checks and 13 admin checks, all passing. The tests never change your settings: changes run in a sandbox folder and a throwaway registry key, and the app test runs the app in a read-only mode that refuses every action.
 
 ## Also from Hib
 

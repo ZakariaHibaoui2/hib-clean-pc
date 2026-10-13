@@ -50,8 +50,6 @@ $tweaks = @(
         (V 'HKCU' 'Software\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1)) }
     @{ id = 'feedback'; restart = $null; values = @(
         (V 'HKCU' 'Software\Microsoft\Siuf\Rules' 'NumberOfSIUFInPeriod' 0)) }
-    @{ id = 'widgets'; restart = 'explorer'; values = @(
-        (V 'HKLM' 'SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' 0)) }
     @{ id = 'telemetry'; restart = $null; values = @(
         (V 'HKLM' 'SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0)) }
 )
@@ -94,6 +92,27 @@ if ($backup) { foreach ($p in $backup.PSObject.Properties) { $store[$p.Name] = @
 
 function Save-Backup { Write-State $stateName $store }
 
+# Puts back the saved values of one tweak and forgets its backup.
+function Restore-Tweak($t) {
+    foreach ($s in $store[$t.id]) {
+        # Only restore values this tweak owns.
+        if (-not ($t.values | Where-Object { $_.hive -eq $s.hive -and $_.path -eq $s.path -and $_.name -eq $s.name })) { continue }
+        $k = Open-Key $s.hive $s.path $true
+        try {
+            if ($s.existed) {
+                $value = $s.value
+                if ($s.kind -eq 'DWord') { $value = [int]$value }
+                elseif ($s.kind -eq 'QWord') { $value = [long]$value }
+                $k.SetValue($s.name, $value, [Microsoft.Win32.RegistryValueKind]$s.kind)
+            } else {
+                $k.DeleteValue($s.name, $false)
+            }
+        } finally { $k.Close() }
+    }
+    $store.Remove($t.id)
+    Save-Backup
+}
+
 $wanted = @($a.ids)
 function Selected { $tweaks | Where-Object { $wanted -contains $_.id } }
 
@@ -108,8 +127,9 @@ switch ($a.mode) {
         $isAdmin = Test-Admin
         $out = foreach ($t in (Selected)) {
             if ((Needs-Admin $t) -and -not $isAdmin) { [ordered]@{ id = $t.id; ok = $false; error = 'needs-admin' }; continue }
+            $fresh = -not $store.ContainsKey($t.id)
             try {
-                if (-not $store.ContainsKey($t.id)) {
+                if ($fresh) {
                     $saved = foreach ($v in $t.values) {
                         $cur = Read-Value $v
                         [ordered]@{ hive = $v.hive; path = $v.path; name = $v.name; existed = $cur.existed; kind = $cur.kind; value = $cur.value }
@@ -122,7 +142,12 @@ switch ($a.mode) {
                     try { $k.SetValue($v.name, [int]$v.value, [Microsoft.Win32.RegistryValueKind]::DWord) } finally { $k.Close() }
                 }
                 [ordered]@{ id = $t.id; ok = $true }
-            } catch { [ordered]@{ id = $t.id; ok = $false; error = $_.Exception.Message } }
+            } catch {
+                $message = $_.Exception.Message
+                # Half-applied: put back what was already changed, so nothing is left in between.
+                if ($fresh) { try { Restore-Tweak $t } catch { } }
+                [ordered]@{ id = $t.id; ok = $false; error = $message }
+            }
         }
         Send @($out)
     }
@@ -132,23 +157,7 @@ switch ($a.mode) {
             if (-not $store.ContainsKey($t.id)) { [ordered]@{ id = $t.id; ok = $false; error = 'nothing-to-undo' }; continue }
             if ((Needs-Admin $t) -and -not $isAdmin) { [ordered]@{ id = $t.id; ok = $false; error = 'needs-admin' }; continue }
             try {
-                foreach ($s in $store[$t.id]) {
-                    # Only restore values this tweak owns.
-                    if (-not ($t.values | Where-Object { $_.hive -eq $s.hive -and $_.path -eq $s.path -and $_.name -eq $s.name })) { continue }
-                    $k = Open-Key $s.hive $s.path $true
-                    try {
-                        if ($s.existed) {
-                            $value = $s.value
-                            if ($s.kind -eq 'DWord') { $value = [int]$value }
-                            elseif ($s.kind -eq 'QWord') { $value = [long]$value }
-                            $k.SetValue($s.name, $value, [Microsoft.Win32.RegistryValueKind]$s.kind)
-                        } else {
-                            $k.DeleteValue($s.name, $false)
-                        }
-                    } finally { $k.Close() }
-                }
-                $store.Remove($t.id)
-                Save-Backup
+                Restore-Tweak $t
                 [ordered]@{ id = $t.id; ok = $true }
             } catch { [ordered]@{ id = $t.id; ok = $false; error = $_.Exception.Message } }
         }

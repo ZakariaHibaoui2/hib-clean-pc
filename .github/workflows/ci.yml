@@ -40,6 +40,9 @@ jobs:
         run: |
           node -e "eval(require('fs').readFileSync('ui/i18n.js','utf8').replace('const I18N','globalThis.I18N')); const en=Object.keys(I18N.en); for (const l of ['fr','ar']) { const miss=en.filter(k=>!(k in I18N[l])); if (miss.length) { console.error(l, miss); process.exit(1) } } console.log('ok', en.length, 'strings')"
 
+      - name: Health score
+        run: node tests/score.test.mjs
+
       - name: Build
         run: python tools/build.py
 

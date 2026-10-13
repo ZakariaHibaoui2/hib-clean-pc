@@ -210,7 +210,24 @@ const orbHtml = (id, unit, extra = '') => `
   <div class="orb ${extra}" ${id ? `id="${id}"` : ''}><canvas aria-hidden="true"></canvas><div class="orb-glass"></div>
     <div class="orb-read"><span class="score">–</span><span class="of">${esc(unit)}</span></div></div>`;
 
-function orb(el, value, kind, onValue) {
+// The 3D orb (orb3d.js, a module) loads alongside this script; wait for it briefly,
+// and draw the flat orb if WebGL isn't available.
+const orb3dReady = new Promise((resolve) => {
+  if (window.HibOrb3D) return resolve(window.HibOrb3D);
+  addEventListener('orb3d-ready', () => resolve(window.HibOrb3D), { once: true });
+  setTimeout(() => resolve(window.HibOrb3D || null), 3000);
+});
+
+async function orb(el, value, kind, onValue) {
+  const o3 = await orb3dReady;
+  if (!el.isConnected) return;
+  if (o3 && o3.supported()) {
+    try { o3.mountOrb(el, value, kind, onValue); return; } catch (e) { /* fall back to the flat orb */ }
+  }
+  orb2d(el, value, kind, onValue);
+}
+
+function orb2d(el, value, kind, onValue) {
   const canvas = $('canvas', el);
   const ctx = canvas.getContext('2d');
   const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -457,11 +474,14 @@ VIEWS.windows = (view) => {
   view.innerHTML = `${header(t('winTitle'), t('winLead'))}
     <section class="card"><div class="card-head"><h2>${esc(t('winAds'))}</h2><button class="btn primary" id="all" disabled>${esc(t('removeAll'))}</button></div>
       <label class="check-line"><input type="checkbox" id="restore" checked> ${esc(t('restoreFirst'))}</label>
-      <div id="tweaks">${skeleton(t('loading'), 5)}</div><div id="explorer"></div></section>
+      <div id="tweaks">${skeleton(t('loading'), 5)}</div><div id="explorer"></div>
+      <div class="note"><p>${esc(t('widgetsNote'))}</p><button class="btn ghost" id="widgets-settings">${esc(t('openTaskbar'))}</button></div></section>
     <section class="card"><div class="card-head"><h2>${esc(t('winApps'))}</h2><button class="btn primary" id="rm" disabled>${esc(t('removeSelected'))}</button></div>
       <p class="fine">${esc(t('winAppsLead'))}</p>
       <div id="apps">${skeleton(t('loading'), 3)}</div></section>`;
 
+  // Windows only lets its own Settings app turn Widgets off, so we open that page.
+  $('#widgets-settings').onclick = () => bridge('host.open', { url: 'ms-settings:taskbar' });
   let needsExplorer = false;
   const showExplorer = () => {
     if (!needsExplorer || $('#restart-explorer')) return;
